@@ -5,8 +5,40 @@ import (
 	"os"
 	"testing"
 
+	"github.com/pjvds/randombytes"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestAppendRollingSegments(t *testing.T) {
+	directory, err := ioutil.TempDir("", "edgy_test_append_roundtrip_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(directory)
+
+	log, err := InitializeLog(LogConfig{
+		SegmentSize: 50,
+	}, directory)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+
+	err = log.Append(NewMessageSet([]RawMessage{
+		NewMessage(0, randombytes.Make(50-HEADER_LENGTH-1)),
+	}))
+	assert.Nil(t, err)
+
+	err = log.Append(NewMessageSet([]RawMessage{
+		NewMessage(0, randombytes.Make(50-HEADER_LENGTH-1)),
+	}))
+	assert.Nil(t, err)
+
+	fi, err := ioutil.ReadDir(directory)
+	assert.Nil(t, err)
+	assert.Len(t, fi, 2)
+}
 
 func TestAppendRoundtrip(t *testing.T) {
 	directory, err := ioutil.TempDir("", "edgy_test_append_roundtrip_")
@@ -15,7 +47,7 @@ func TestAppendRoundtrip(t *testing.T) {
 	}
 	defer os.RemoveAll(directory)
 
-	log, err := InitializeLog(directory)
+	log, err := InitializeLog(DefaultConfig, directory)
 	if err != nil {
 		t.Fatal(err)
 	}

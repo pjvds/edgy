@@ -2,6 +2,7 @@ package storage
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -16,17 +17,26 @@ var logger = tidy.GetLogger()
 var ErrClosed = errors.New("closed")
 
 type Log struct {
-	directory string
-	segments  []*Segment
+	config LogConfig
+
+	directory     string
+	segments      []*Segment
+	activeSegment *Segment
 
 	index       *Index
 	idSequencer *MessageIdSequencer
 
 	lock *sync.RWMutex
 
-	activeSegment *Segment
-
 	closed bool
+}
+
+type LogConfig struct {
+	SegmentSize int64
+}
+
+var DefaultConfig = LogConfig{
+	SegmentSize: 1000 * 1000,
 }
 
 func createOrEnsureDirectoryIsEmpty(directory string) error {
@@ -57,7 +67,7 @@ func createOrEnsureDirectoryIsEmpty(directory string) error {
 	return nil
 }
 
-func InitializeLog(directory string) (*Log, error) {
+func InitializeLog(config LogConfig, directory string) (*Log, error) {
 	// we expect the directory to be non-existing or empty.
 	if err := createOrEnsureDirectoryIsEmpty(directory); err != nil {
 		logger.WithError(err).Withs(tidy.Fields{
@@ -67,8 +77,8 @@ func InitializeLog(directory string) (*Log, error) {
 		return nil, err
 	}
 
-	filename := path.Join(directory, "0000000001.sd")
-	segment, err := CreateSegment(filename, 1000*1000)
+	filename := path.Join(directory, "1.sd")
+	segment, err := CreateSegment(filename, config.SegmentSize)
 
 	if err != nil {
 		logger.WithError(err).Error("segment creation failed")
@@ -79,8 +89,11 @@ func InitializeLog(directory string) (*Log, error) {
 	return &Log{
 		index:         &Index{},
 		idSequencer:   &MessageIdSequencer{},
+		segments:      []*Segment{segment},
 		activeSegment: segment,
 		lock:          new(sync.RWMutex),
+		directory:     directory,
+		config:        config,
 	}, nil
 }
 
@@ -91,15 +104,42 @@ func (this *Log) Close() {
 	// TODO: close segments?
 }
 
-// Append writes the message in the message set to the file system. This is
-// done sequentualy and order is preserved. It returns the number of messages
-// written to disk. If this number is not equal to the size of the provided
-// message set, an error is also returned.
+func (this *Log) rollToNextSegment() error {
+	filename := path.Join(this.directory, fmt.Sprint(len(this.segments)+1, ".sd"))
+	nextSegment, err := CreateSegment(filename, this.config.SegmentSize)
+
+	if err != nil {
+		logger.WithError(err).Debug("segment creation failed")
+		return err
+	}
+
+	this.segments = append(this.segments, nextSegment)
+	this.activeSegment = nextSegment
+
+	logger.With("segment", tidy.Stringify(this.activeSegment)).Debug("rolled to new segment")
+
+	return nil
+}
+
+// Append writes the messages in the set to the file system. The order is preserved.
 func (this *Log) Append(messages *MessageSet) error {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
 	if err := this.activeSegment.Append(messages, this.idSequencer); err != nil {
+		logger.WithError(err).Debug("error appending to segment")
+
+		if err == ErrSegmentFull {
+			logger.With("name", this.activeSegment.file.Name()).Debug("creating new segment because the current one is full")
+
+			if err := this.rollToNextSegment(); err != nil {
+				logger.WithError(err).Debug("failed to roll to next segment")
+
+				return err
+			}
+
+			return this.activeSegment.Append(messages, this.idSequencer)
+		}
 		return err
 	}
 

@@ -41,6 +41,13 @@ func CreateSegment(filename string, size int64) (*Segment, error) {
 		return nil, err
 	}
 
+	if logger.IsDebug() {
+		logger.Withs(tidy.Fields{
+			"filename": filename,
+			"size":     size,
+		}).Debug("segment created")
+	}
+
 	return createSegment(file, size)
 }
 
@@ -58,6 +65,12 @@ func (this *Segment) Append(messages *MessageSet, sequencer *MessageIdSequencer)
 	defer this.lock.Unlock()
 
 	if this.size-this.position < int64(len(messages.buffer)) {
+		logger.Withs(tidy.Fields{
+			"filename":   this.file.Name(),
+			"position":   this.position,
+			"size":       this.size,
+			"write_size": len(messages.buffer),
+		}).Debug("segment full")
 		return ErrSegmentFull
 	}
 
