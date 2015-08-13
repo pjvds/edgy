@@ -113,10 +113,16 @@ func (this *Log) rollToNextSegment() error {
 		return err
 	}
 
+	previous := this.activeSegment
+
 	this.segments = append(this.segments, nextSegment)
 	this.activeSegment = nextSegment
 
-	logger.With("segment", tidy.Stringify(this.activeSegment)).Debug("rolled to new segment")
+	logger.Withs(tidy.Fields{
+		"new":      tidy.Stringify(this.activeSegment),
+		"previous": tidy.Stringify(previous),
+		"count":    len(this.segments),
+	}).Debug("rolled to new segment")
 
 	return nil
 }
@@ -126,20 +132,13 @@ func (this *Log) Append(messages *MessageSet) error {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
+	if !this.activeSegment.SpaceLeftFor(messages) {
+		logger.With("segment", tidy.Stringify(this.activeSegment)).Debug("no space left for message set in active segment")
+
+		this.rollToNextSegment()
+	}
+
 	if err := this.activeSegment.Append(messages, this.idSequencer); err != nil {
-		logger.WithError(err).Debug("error appending to segment")
-
-		if err == ErrSegmentFull {
-			logger.With("name", this.activeSegment.file.Name()).Debug("creating new segment because the current one is full")
-
-			if err := this.rollToNextSegment(); err != nil {
-				logger.WithError(err).Debug("failed to roll to next segment")
-
-				return err
-			}
-
-			return this.activeSegment.Append(messages, this.idSequencer)
-		}
 		return err
 	}
 
@@ -171,7 +170,7 @@ func (this *Log) ReadFrom(fromId MessageId, eagerFetchUntilMaxBytes int) (*Messa
 	}
 	logger.With("index_entry", entry).Debug("index entry found")
 
-	buffer := make([]byte, eagerFetchUntilMaxBytes, eagerFetchUntilMaxBytes)
+	buffer := make([]byte, eagerFetchUntilMaxBytes)
 	// TODO: defer this.buffers.Put(buffer)
 
 	// TODO: offset should already be a int64

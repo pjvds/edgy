@@ -2,7 +2,6 @@ package storage
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -15,6 +14,7 @@ var (
 )
 
 type Segment struct {
+	filename string
 	lock     *sync.RWMutex
 	file     *os.File
 	position int64
@@ -53,6 +53,7 @@ func CreateSegment(filename string, size int64) (*Segment, error) {
 
 func createSegment(file *os.File, size int64) (*Segment, error) {
 	return &Segment{
+		filename: file.Name(),
 		lock:     new(sync.RWMutex),
 		file:     file,
 		position: 0,
@@ -60,16 +61,37 @@ func createSegment(file *os.File, size int64) (*Segment, error) {
 	}, nil
 }
 
+// SpaceLeftFor returns true when the message set can be appended
+// to this segment; otherwise, false.
+func (this *Segment) SpaceLeftFor(messages *MessageSet) bool {
+
+	spaceLeft := this.size - this.position
+	ok := spaceLeft >= messages.Len64()
+
+	if !ok && logger.IsDebug() {
+		logger.Withs(tidy.Fields{
+			"file":       this.filename,
+			"space_left": spaceLeft,
+			"required":   messages.Len64(),
+			"difference": spaceLeft - messages.Len64(),
+		}).Debug("no space left for message set")
+	}
+
+	return ok
+}
+
 func (this *Segment) Append(messages *MessageSet, sequencer *MessageIdSequencer) error {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
-	if this.size-this.position < int64(len(messages.buffer)) {
+	spaceLeft := this.size - this.position
+	if spaceLeft < int64(len(messages.buffer)) {
 		logger.Withs(tidy.Fields{
-			"filename":   this.file.Name(),
+			"filename":   this.filename,
 			"position":   this.position,
 			"size":       this.size,
 			"write_size": len(messages.buffer),
+			"space_left": spaceLeft,
 		}).Debug("segment full")
 		return ErrSegmentFull
 	}
@@ -77,40 +99,26 @@ func (this *Segment) Append(messages *MessageSet, sequencer *MessageIdSequencer)
 	// align messages in set with our sequencer.
 	messages.Align(sequencer)
 
-	written, err := this.file.WriteAt(messages.buffer, int64(this.position))
-
-	if err != nil {
+	// WriteAt tries to write all bytes, no need to check the written bytes count.
+	// Because an error is returned when this is not equal to the number of bytes we
+	// provided.
+	if written, err := this.file.WriteAt(messages.buffer, int64(this.position)); err != nil {
 		if logger.IsError() {
 			logger.WithError(err).Withs(tidy.Fields{
-				"file":     this.file.Name(),
-				"position": this.position,
-				"written":  written,
+				"file":       this.file.Name(),
+				"position":   this.position,
+				"written":    written,
+				"space_left": spaceLeft,
 			}).Error("write error")
 		}
 
 		return err
+	} else {
+		// the write succeeded, advance position
+		this.position += int64(messages.Len())
+
+		return nil
 	}
-
-	if written != len(messages.buffer) {
-		err := fmt.Errorf("unexpected write count")
-
-		if logger.IsError() {
-			logger.WithError(err).Withs(tidy.Fields{
-				"file":     this.file.Name(),
-				"position": this.position,
-				"written":  written,
-				"expected": len(messages.buffer),
-				"diff":     len(messages.buffer) - written,
-			}).Error("unexpected write count")
-		}
-
-		return err
-	}
-
-	// advance position
-	this.position += int64(written)
-
-	return nil
 }
 
 func (this *Segment) ReadAt(buffer []byte, offset int64) (int, error) {
@@ -120,7 +128,7 @@ func (this *Segment) ReadAt(buffer []byte, offset int64) (int, error) {
 		return this.file.ReadAt(buffer, offset)
 	}
 
-	if available < 0 {
+	if available <= 0 {
 		return 0, io.EOF
 	}
 

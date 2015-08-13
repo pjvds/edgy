@@ -87,7 +87,6 @@ type SetEntry struct {
 	Offset int
 	Length int
 	Hash   int64
-	Raw    RawMessage
 }
 
 func NewMessageSetFromBuffer(buffer []byte) *MessageSet {
@@ -117,7 +116,6 @@ func NewMessageSetFromBuffer(buffer []byte) *MessageSet {
 			break
 		}
 
-		entry.Raw = buffer[valueStart : valueStart+entry.Length]
 		entries = append(entries, entry)
 
 		position = valueEnd + 1
@@ -137,32 +135,30 @@ func NewMessageSetFromBuffer(buffer []byte) *MessageSet {
 
 func NewMessageSet(messages []RawMessage) *MessageSet {
 	offset := 0
-	entries := make([]SetEntry, len(messages))
-	length := 0
+	size := 0
 
 	for _, message := range messages {
-		length += message.Len()
+		size += message.Len()
 	}
 
-	buffer := make([]byte, length)
+	buffer := make([]byte, size)
 
-	for index, message := range messages {
-		length := message.Len()
-
-		entries[index] = SetEntry{
-			Offset: offset,
-			Length: length,
-			Raw:    message,
-		}
-
+	for _, message := range messages {
 		copy(buffer[offset:], message)
-		offset += length
+		offset += message.Len()
 	}
 
-	return &MessageSet{
-		buffer:  buffer,
-		entries: entries,
-	}
+	return NewMessageSetFromBuffer(buffer)
+}
+
+// Len returns the number of raw bytes of the total set.
+func (this *MessageSet) Len() int {
+	return len(this.buffer)
+}
+
+// Len returns the number of raw bytes of the total set.
+func (this *MessageSet) Len64() int64 {
+	return int64(this.Len())
 }
 
 func (this *MessageSet) Align(sequencer *MessageIdSequencer) {
@@ -172,7 +168,7 @@ func (this *MessageSet) Align(sequencer *MessageIdSequencer) {
 		id := sequencer.GetNext()
 
 		entry.Id = id
-		entry.Raw.UpdateId(id)
+		byteOrder.PutUint64(this.buffer[entry.Offset+INDEX_ID:], uint64(id))
 
 		this.entries[index] = entry
 
