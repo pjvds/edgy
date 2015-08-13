@@ -10,7 +10,7 @@ import (
 )
 
 func TestAppendRollingSegments(t *testing.T) {
-	directory, err := ioutil.TempDir("", "edgy_test_append_roundtrip_")
+	directory, err := ioutil.TempDir("", "edgy_test_append_append_rolling_segments_")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,12 +26,12 @@ func TestAppendRollingSegments(t *testing.T) {
 	defer log.Close()
 
 	err = log.Append(NewMessageSet([]RawMessage{
-		NewMessage(0, randombytes.Make(50-HEADER_LENGTH-1)),
+		NewMessage(0, randombytes.Make(50-HEADER_LENGTH)),
 	}))
 	assert.Nil(t, err)
 
 	err = log.Append(NewMessageSet([]RawMessage{
-		NewMessage(0, randombytes.Make(50-HEADER_LENGTH-1)),
+		NewMessage(0, randombytes.Make(50-HEADER_LENGTH)),
 	}))
 	assert.Nil(t, err)
 
@@ -55,8 +55,8 @@ func TestAppendRoundtrip(t *testing.T) {
 
 	err = log.Append(NewMessageSet([]RawMessage{
 		NewMessage(0, []byte("foo bar")),
-		NewMessage(1, []byte("baz")),
-		NewMessage(2, []byte("42")),
+		NewMessage(0, []byte("baz")),
+		NewMessage(0, []byte("42")),
 	}))
 	assert.Nil(t, err)
 
@@ -65,7 +65,5 @@ func TestAppendRoundtrip(t *testing.T) {
 	assert.Len(t, readResult.entries, 2)
 
 	assert.Equal(t, MessageId(1), readResult.entries[0].Id)
-	assert.Equal(t, []byte("baz"), readResult.entries[0].Raw)
 	assert.Equal(t, MessageId(2), readResult.entries[1].Id)
-	assert.Equal(t, []byte("42"), readResult.entries[1].Raw)
 }
