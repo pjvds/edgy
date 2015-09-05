@@ -8,8 +8,6 @@ import (
 	"github.com/pjvds/tidy"
 )
 
-var byteOrder = binary.LittleEndian
-
 // Message format:
 //
 // byte    magic            (1 bytes) 0 (START_VALUE)
@@ -18,6 +16,8 @@ var byteOrder = binary.LittleEndian
 // int64   xxhash           (8 bytes) 13
 // []byte  content          (n bytes) 21
 type RawMessage []byte
+
+var byteOrder = binary.LittleEndian
 
 const (
 	START_VALUE = byte('<')

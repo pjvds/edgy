@@ -2,6 +2,7 @@ package storage
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -13,15 +14,37 @@ var (
 	ErrSegmentFull = errors.New("segment full")
 )
 
+type SegmentId struct {
+	Topic     string
+	Partition int32
+	Segment   int64
+}
+
+func (this SegmentId) Next() SegmentId {
+	return SegmentId{
+		Topic:     this.Topic,
+		Partition: this.Partition,
+		Segment:   this.Segment + 1,
+	}
+}
+
+func (this SegmentId) String() string {
+	return fmt.Sprintf("%v/%v/%v", this.Topic, this.Partition, this.Segment)
+}
+
 type Segment struct {
+	id       SegmentId
 	filename string
 	lock     *sync.RWMutex
 	file     *os.File
 	position int64
 	size     int64
+	logger   tidy.Logger
 }
 
-func CreateSegment(filename string, size int64) (*Segment, error) {
+func CreateSegment(id SegmentId, filename string, size int64) (*Segment, error) {
+	logger := tidy.GetLogger().With("segment", id.String())
+
 	file, err := os.Create(filename)
 	if err != nil {
 		logger.WithError(err).Withs(tidy.Fields{
@@ -48,10 +71,6 @@ func CreateSegment(filename string, size int64) (*Segment, error) {
 		}).Debug("segment created")
 	}
 
-	return createSegment(file, size)
-}
-
-func createSegment(file *os.File, size int64) (*Segment, error) {
 	return &Segment{
 		filename: file.Name(),
 		lock:     new(sync.RWMutex),
@@ -69,7 +88,7 @@ func (this *Segment) SpaceLeftFor(messages *MessageSet) bool {
 	ok := spaceLeft >= messages.Len64()
 
 	if !ok && logger.IsDebug() {
-		logger.Withs(tidy.Fields{
+		this.logger.Withs(tidy.Fields{
 			"file":       this.filename,
 			"space_left": spaceLeft,
 			"required":   messages.Len64(),
@@ -86,7 +105,7 @@ func (this *Segment) Append(messages *MessageSet, sequencer *MessageIdSequencer)
 
 	spaceLeft := this.size - this.position
 	if spaceLeft < int64(len(messages.buffer)) {
-		logger.Withs(tidy.Fields{
+		this.logger.Withs(tidy.Fields{
 			"filename":   this.filename,
 			"position":   this.position,
 			"size":       this.size,
@@ -103,8 +122,8 @@ func (this *Segment) Append(messages *MessageSet, sequencer *MessageIdSequencer)
 	// Because an error is returned when this is not equal to the number of bytes we
 	// provided.
 	if written, err := this.file.WriteAt(messages.buffer, int64(this.position)); err != nil {
-		if logger.IsError() {
-			logger.WithError(err).Withs(tidy.Fields{
+		if this.logger.IsError() {
+			this.logger.WithError(err).Withs(tidy.Fields{
 				"file":       this.file.Name(),
 				"position":   this.position,
 				"written":    written,

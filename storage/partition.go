@@ -12,12 +12,20 @@ import (
 	"github.com/pjvds/tidy"
 )
 
-var logger = tidy.GetLogger()
-
 var ErrClosed = errors.New("closed")
 
-type Log struct {
-	config LogConfig
+type PartitionId struct {
+	Topic     string
+	Partition int32
+}
+
+func (this PartitionId) String() string {
+	return fmt.Sprintf("%v/%v", this.Topic, this.Partition)
+}
+
+type Partition struct {
+	id     PartitionId
+	config PartitionConfig
 
 	directory     string
 	segments      []*Segment
@@ -29,13 +37,14 @@ type Log struct {
 	lock *sync.RWMutex
 
 	closed bool
+	logger tidy.Logger
 }
 
-type LogConfig struct {
+type PartitionConfig struct {
 	SegmentSize int64
 }
 
-var DefaultConfig = LogConfig{
+var DefaultConfig = PartitionConfig{
 	SegmentSize: 1000 * 1000,
 }
 
@@ -44,7 +53,6 @@ func createOrEnsureDirectoryIsEmpty(directory string) error {
 
 	if err != nil {
 		if os.IsNotExist(err) {
-			// 0644
 			return os.MkdirAll(directory, 0644)
 		}
 
@@ -54,6 +62,8 @@ func createOrEnsureDirectoryIsEmpty(directory string) error {
 	if !info.IsDir() {
 		return errors.New("not a directory")
 	}
+
+	// TODO: validate access rights?
 
 	files, err := ioutil.ReadDir(directory)
 	if err != nil {
@@ -67,7 +77,9 @@ func createOrEnsureDirectoryIsEmpty(directory string) error {
 	return nil
 }
 
-func InitializeLog(config LogConfig, directory string) (*Log, error) {
+func InitializePartition(id PartitionId, config PartitionConfig, directory string) (*Partition, error) {
+	logger := tidy.GetLogger().With("partition", id.String())
+
 	// we expect the directory to be non-existing or empty.
 	if err := createOrEnsureDirectoryIsEmpty(directory); err != nil {
 		logger.WithError(err).Withs(tidy.Fields{
@@ -78,15 +90,24 @@ func InitializeLog(config LogConfig, directory string) (*Log, error) {
 	}
 
 	filename := path.Join(directory, "1.sd")
-	segment, err := CreateSegment(filename, config.SegmentSize)
+	segment, err := CreateSegment(
+		SegmentId{
+			Topic:     id.Topic,
+			Partition: id.Partition,
+			Segment:   1,
+		}, filename, config.SegmentSize)
 
 	if err != nil {
-		logger.WithError(err).Error("segment creation failed")
+		logger.
+			WithError(err).
+			With("filename", filename).
+			Error("segment creation failed")
 
 		return nil, err
 	}
 
-	return &Log{
+	return &Partition{
+		id:            id,
 		index:         &Index{},
 		idSequencer:   &MessageIdSequencer{},
 		segments:      []*Segment{segment},
@@ -94,22 +115,23 @@ func InitializeLog(config LogConfig, directory string) (*Log, error) {
 		lock:          new(sync.RWMutex),
 		directory:     directory,
 		config:        config,
+		logger:        logger,
 	}, nil
 }
 
-func (this *Log) Close() {
+func (this *Partition) Close() {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
 	// TODO: close segments?
 }
 
-func (this *Log) rollToNextSegment() error {
+func (this *Partition) rollToNextSegment() error {
 	filename := path.Join(this.directory, fmt.Sprint(len(this.segments)+1, ".sd"))
-	nextSegment, err := CreateSegment(filename, this.config.SegmentSize)
+	nextSegment, err := CreateSegment(this.activeSegment.id.Next(), filename, this.config.SegmentSize)
 
 	if err != nil {
-		logger.WithError(err).Debug("segment creation failed")
+		this.logger.WithError(err).Debug("segment creation failed")
 		return err
 	}
 
@@ -118,7 +140,7 @@ func (this *Log) rollToNextSegment() error {
 	this.segments = append(this.segments, nextSegment)
 	this.activeSegment = nextSegment
 
-	logger.Withs(tidy.Fields{
+	this.logger.Withs(tidy.Fields{
 		"new":      tidy.Stringify(this.activeSegment),
 		"previous": tidy.Stringify(previous),
 		"count":    len(this.segments),
@@ -128,12 +150,12 @@ func (this *Log) rollToNextSegment() error {
 }
 
 // Append writes the messages in the set to the file system. The order is preserved.
-func (this *Log) Append(messages *MessageSet) error {
+func (this *Partition) Append(messages *MessageSet) error {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
 	if !this.activeSegment.SpaceLeftFor(messages) {
-		logger.With("segment", tidy.Stringify(this.activeSegment)).Debug("no space left for message set in active segment")
+		this.logger.With("segment", tidy.Stringify(this.activeSegment)).Debug("no space left for message set in active segment")
 
 		this.rollToNextSegment()
 	}
@@ -146,29 +168,25 @@ func (this *Log) Append(messages *MessageSet) error {
 	return nil
 }
 
-func (this *Log) ReadFrom(fromId MessageId, eagerFetchUntilMaxBytes int) (*MessageSet, error) {
+func (this *Partition) ReadFrom(fromId MessageId, eagerFetchUntilMaxBytes int) (*MessageSet, error) {
 	this.lock.RLock()
 	defer this.lock.RUnlock()
 
-	logger := logger.Withs(tidy.Fields{
-		"from_id":                     fromId,
-		"eager_fetch_until_max_bytes": eagerFetchUntilMaxBytes,
-	})
-
 	if this.closed {
-		err := ErrClosed
-
-		logger.WithError(err).Debug("ReadFrom called while closed")
-		return nil, err
+		this.logger.WithError(ErrClosed).Debug("ReadFrom called while closed")
+		return nil, ErrClosed
 	}
 
 	entry, ok := this.index.FindLastLessOrEqual(fromId)
 	if !ok {
-		logger.Debug("no index entry found")
+		this.logger.With("fromId", fromId).Debug("no index entry found")
 
 		return EmptyMessageSet, nil
 	}
-	logger.With("index_entry", entry).Debug("index entry found")
+	logger.Withs(tidy.Fields{
+		"fromId":      fromId,
+		"index_entry": entry,
+	}).Debug("index entry found")
 
 	buffer := make([]byte, eagerFetchUntilMaxBytes)
 	// TODO: defer this.buffers.Put(buffer)
@@ -185,11 +203,6 @@ func (this *Log) ReadFrom(fromId MessageId, eagerFetchUntilMaxBytes int) (*Messa
 
 		return nil, err
 	}
-
-	logger.Withs(tidy.Fields{
-		"buffer_size": len(buffer),
-		"read":        read,
-	}).Debug("read from partition data file")
 
 	if read == 0 {
 		return nil, err

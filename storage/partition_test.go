@@ -16,9 +16,13 @@ func TestAppendRollingSegments(t *testing.T) {
 	}
 	defer os.RemoveAll(directory)
 
-	log, err := InitializeLog(LogConfig{
-		SegmentSize: 50,
-	}, directory)
+	log, err := InitializePartition(
+		PartitionId{
+			Topic:     "topic",
+			Partition: 1,
+		}, PartitionConfig{
+			SegmentSize: 50,
+		}, directory)
 
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +51,10 @@ func TestAppendRoundtrip(t *testing.T) {
 	}
 	defer os.RemoveAll(directory)
 
-	log, err := InitializeLog(DefaultConfig, directory)
+	log, err := InitializePartition(PartitionId{
+		Topic:     "topic",
+		Partition: 1,
+	}, DefaultConfig, directory)
 	if err != nil {
 		t.Fatal(err)
 	}

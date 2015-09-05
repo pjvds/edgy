@@ -2,6 +2,8 @@ package storage
 
 import "github.com/pjvds/tidy"
 
+var logger = tidy.GetLogger()
+
 type IndexEntry struct {
 	// The id of the message.
 	Id MessageId
