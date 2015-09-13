@@ -1,0 +1,25 @@
+#!/bin/bash
+
+if ! type go &> /dev/null; then 
+	echo "go command not found!"
+	exit 1
+fi
+
+if ! type protoc &> /dev/null; then
+	echo "protoc command not found!"
+	echo "see: https://github.com/google/protobuf/blob/master/INSTALL.txt"
+	exit 1
+fi
+
+if ! type protoc-gen-go &> /dev/null; then
+	echo "protoc-gen-go command not found, will try to install"
+	go get -a github.com/golang/protobuf/protoc-gen-go
+
+	if ! type protoc-gen-go &> /dev/null; then 
+		echo "protoc-gen-go not available after installation, is $GOPATH/bin in your path?"
+		exit 1
+	fi
+fi
+
+protoc -I ./ edgy.proto --go_out=plugins=grpc:.
+

@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+option java_package = "io.edgy.api";
+option objc_class_prefix = "HLW";
+
+package api;
+
+service Edgy {
+	rpc Append(AppendRequest) returns (AppendReply) {}
+}
+
+message AppendRequest {
+	string topic = 1;
+	int32 partition = 2;
+	bytes messages = 3;
+}
+
+message AppendReply {
+	bool ok = 1;
+}
