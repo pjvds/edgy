@@ -15,20 +15,27 @@ import (
 )
 
 type Server struct {
-	logger tidy.Logger
+	logger     tidy.Logger
+	controller *Controller
 }
 
 type Controller struct {
+	logger tidy.Logger
+
 	partitions     map[storage.PartitionId]*storage.Partition
 	partitionsLock sync.RWMutex
 
-	dataDirectory string
+	directory string
 }
 
-func ListenAndServe(address string) error {
+func ListenAndServe(address string, directory string) error {
 	logger := tidy.GetLogger()
 	server := &Server{
 		logger: logger,
+		controller: &Controller{
+			logger:    logger,
+			directory: directory,
+		},
 	}
 
 	logger.With("address", address).Debug("creating listeners")
@@ -44,7 +51,7 @@ func ListenAndServe(address string) error {
 
 func (this *Server) Serve(listener net.Listener) error {
 	grpcServer := grpc.NewServer()
-	api.RegisterEdgyServer(grpcServer, &Controller{})
+	api.RegisterEdgyServer(grpcServer, this.controller)
 
 	return grpcServer.Serve(listener)
 }
