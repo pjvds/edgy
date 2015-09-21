@@ -53,7 +53,7 @@ func createOrEnsureDirectoryIsEmpty(directory string) error {
 
 	if err != nil {
 		if os.IsNotExist(err) {
-			return os.MkdirAll(directory, 0644)
+			return os.MkdirAll(directory, 0744)
 		}
 
 		return err
@@ -98,8 +98,7 @@ func InitializePartition(id PartitionId, config PartitionConfig, directory strin
 		}, filename, config.SegmentSize)
 
 	if err != nil {
-		logger.
-			WithError(err).
+		logger.WithError(err).
 			With("filename", filename).
 			Error("segment creation failed")
 
