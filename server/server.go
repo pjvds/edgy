@@ -2,6 +2,7 @@ package server
 
 import (
 	"net"
+	"path/filepath"
 	"sync"
 
 	"golang.org/x/net/context"
@@ -53,33 +54,40 @@ func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) 
 		Topic:     request.Topic,
 		Partition: request.Partition,
 	}
+	this.logger.With("id", id.String()).Debug("handling incoming append request")
 
 	partition, err := this.getPartition(id)
-
 	if err != nil {
+		this.logger.With("id", id.String()).WithError(err).Error("failed to get or create storage for partition")
 		return nil, err
 	}
 
 	messageSet := storage.NewMessageSetFromBuffer(request.Messages)
+	this.logger.With("id", id.String()).Debug("appending to partition")
 
 	if err := partition.Append(messageSet); err != nil {
+		this.logger.With("id", id.String()).WithError(err).Error("append failed")
 		return nil, err
 	}
 
-	return nil, nil
+	this.logger.With("id", id.String()).Debug("append success")
+
+	return &api.AppendReply{
+		Ok: true,
+	}, nil
 }
 
 func (this *Controller) getPartition(id storage.PartitionId) (*storage.Partition, error) {
 	this.partitionsLock.RLock()
-	defer this.partitionsLock.RUnlock()
-
 	partition, ok := this.partitions[id]
+	this.partitionsLock.RUnlock()
 
 	if !ok {
 		this.partitionsLock.Lock()
 		defer this.partitionsLock.Unlock()
 
-		if newPartition, err := storage.InitializePartition(id, storage.DefaultConfig, this.dataDirectory); err != nil {
+		partitionDir := filepath.Join(this.directory, id.String())
+		if newPartition, err := storage.InitializePartition(id, storage.DefaultConfig, partitionDir); err != nil {
 			return nil, err
 		} else {
 			partition = newPartition
