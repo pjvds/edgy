@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"path/filepath"
 	"sync"
 
@@ -20,48 +21,52 @@ type Controller struct {
 }
 
 func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) (*api.AppendReply, error) {
-	id := storage.PartitionfId{
+	ref := storage.PartitionRef{
 		Topic:     request.Topic,
-		Partition: request.Partition,
+		Partition: storage.PartitionId(request.Partition),
 	}
-	this.logger.With("id", id.String()).Debug("handling incoming append request")
+	this.logger.With("partition", ref.String()).Debug("handling incoming append request")
 
-	partition, err := this.getPartition(id)
+	partition, err := this.getPartition(ref)
 	if err != nil {
-		this.logger.With("id", id.String()).WithError(err).Error("failed to get or create storage for partition")
+		this.logger.With("partition", ref.String()).WithError(err).Error("failed to get or create storage for partition")
 		return nil, err
 	}
 
 	messageSet := storage.NewMessageSetFromBuffer(request.Messages)
-	this.logger.With("id", id.String()).Debug("appending to partition")
+	this.logger.With("partition", ref.String()).Debug("appending to partition")
 
 	if err := partition.Append(messageSet); err != nil {
-		this.logger.With("id", id.String()).WithError(err).Error("append failed")
+		this.logger.With("partition", ref.String()).WithError(err).Error("append failed")
 		return nil, err
 	}
 
-	this.logger.With("id", id.String()).Debug("append success")
+	this.logger.With("partition", ref.String()).Debug("append success")
 
 	return &api.AppendReply{
 		Ok: true,
 	}, nil
 }
 
+func (this *Controller) Read(ctx context.Context, request *api.ReadRequest) (*api.ReadReply, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (this *Controller) Ping(ctx context.Context, request *api.PingRequest) (*api.PingReply, error) {
 	return &api.PingReply{}, nil
 }
 
-func (this *Controller) getPartition(id storage.PartitionId) (*storage.Partition, error) {
+func (this *Controller) getPartition(ref storage.PartitionRef) (*storage.Partition, error) {
 	this.partitionsLock.RLock()
-	partition, ok := this.partitions[id]
+	partition, ok := this.partitions[ref.Partition]
 	this.partitionsLock.RUnlock()
 
 	if !ok {
 		this.partitionsLock.Lock()
 		defer this.partitionsLock.Unlock()
 
-		partitionDir := filepath.Join(this.directory, id.String())
-		if newPartition, err := storage.InitializePartition(id, storage.DefaultConfig, partitionDir); err != nil {
+		partitionDir := filepath.Join(this.directory, ref.Topic, ref.Partition.String())
+		if newPartition, err := storage.InitializePartition(ref, storage.DefaultConfig, partitionDir); err != nil {
 			return nil, err
 		} else {
 			partition = newPartition
