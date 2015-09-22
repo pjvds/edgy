@@ -50,7 +50,7 @@ func TestAppendRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	//defer os.RemoveAll(directory)
+	defer os.RemoveAll(directory)
 
 	log, err := InitializePartition(PartitionRef{
 		Topic:     "my-topic",
