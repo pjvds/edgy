@@ -28,8 +28,15 @@ type Producer struct {
 }
 
 func NewProducer(address string) (*Producer, error) {
-	connection, err := grpc.Dial(address, grpc.WithInsecure())
+	connection, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithTimeout(time.Second))
 	if err != nil {
+		return nil, err
+	}
+
+	client := api.NewEdgyClient(connection)
+
+	if _, err := client.Ping(context.Background(), &api.PingRequest{}); err != nil {
+		connection.Close()
 		return nil, err
 	}
 
