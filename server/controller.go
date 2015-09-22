@@ -59,6 +59,12 @@ func (this *Controller) getPartition(ref storage.PartitionRef) (*PartitionContro
 		this.partitionsLock.Lock()
 		defer this.partitionsLock.Unlock()
 
+		// check again, since there another one can have
+		// created our partition in the time we where locked
+		if partition, ok = this.partitions[ref]; ok {
+			return partition, nil
+		}
+
 		partition = NewPartitionController(ref, this.directory)
 		this.partitions[ref] = partition
 	}
