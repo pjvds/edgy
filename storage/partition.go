@@ -52,6 +52,22 @@ func (this *SegmentList) Get(id SegmentId) (*Segment, bool) {
 	return segment, ok
 }
 
+type PartitionRef struct {
+	Topic     string
+	Partition PartitionId
+}
+
+func (this PartitionRef) ToSegmentRef(segment SegmentId) SegmentRef {
+	return SegmentRef{
+		PartitionRef: this,
+		Segment:      segment,
+	}
+}
+
+func (this PartitionRef) String() string {
+	return fmt.Sprintf("%s/%s", this.Topic, this.Partition)
+}
+
 type PartitionId uint32
 
 func (this PartitionId) String() string {
@@ -60,7 +76,7 @@ func (this PartitionId) String() string {
 }
 
 type Partition struct {
-	id     PartitionId
+	ref    PartitionRef
 	config PartitionConfig
 
 	lastMessageId MessageId
@@ -110,8 +126,8 @@ func createOrEnsureDirectoryIsEmpty(directory string) error {
 	return nil
 }
 
-func InitializePartition(id PartitionId, config PartitionConfig, directory string) (*Partition, error) {
-	logger := tidy.GetLogger().With("partition", id.String())
+func InitializePartition(ref PartitionRef, config PartitionConfig, directory string) (*Partition, error) {
+	logger := tidy.GetLogger().With("partition", ref.String())
 
 	// we expect the directory to be non-existing or empty.
 	if err := createOrEnsureDirectoryIsEmpty(directory); err != nil {
@@ -123,7 +139,7 @@ func InitializePartition(id PartitionId, config PartitionConfig, directory strin
 	}
 
 	return &Partition{
-		id:        id,
+		ref:       ref,
 		segments:  NewSegmentList(),
 		directory: directory,
 		config:    config,
@@ -137,22 +153,22 @@ func (this *Partition) Close() {
 
 func (this *Partition) rollToNextSegment() (*Segment, error) {
 	id := SegmentId(this.lastMessageId.Next())
+	ref := this.ref.ToSegmentRef(id)
+
 	filename := path.Join(this.directory, id.String()+".sd")
 
-	segment, err := CreateSegment(id, filename, this.config.SegmentSize)
+	segment, err := CreateSegment(ref, filename, this.config.SegmentSize)
 
 	if err != nil {
-		this.logger.WithError(err).Debug("segment creation failed")
+		this.logger.With("segment", ref.String()).
+			WithError(err).
+			Debug("segment creation failed")
+
 		return nil, err
 	}
 
-	previous, _ := this.segments.Last()
 	this.segments.Append(id, segment)
-
-	this.logger.Withs(tidy.Fields{
-		"new":      tidy.Stringify(segment),
-		"previous": tidy.Stringify(previous),
-	}).Debug("rolled to new segment")
+	this.logger.With("segment", ref).Debug("rolled to new segment")
 
 	return segment, nil
 }
@@ -163,8 +179,6 @@ func (this *Partition) Append(messages *MessageSet) error {
 	segment, ok := this.segments.Last()
 
 	if !ok {
-		this.logger.Debug("no segment for partition yet")
-
 		if rolledTo, err := this.rollToNextSegment(); err != nil {
 			return err
 		} else {

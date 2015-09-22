@@ -14,6 +14,15 @@ var (
 	ErrSegmentFull = errors.New("segment full")
 )
 
+type SegmentRef struct {
+	PartitionRef
+	Segment SegmentId
+}
+
+func (this SegmentRef) String() string {
+	return fmt.Sprintf("%s/%s", this.PartitionRef.String(), this.Segment)
+}
+
 type SegmentId uint64
 
 func (this SegmentId) String() string {
@@ -27,7 +36,7 @@ type TopicPartition struct {
 }
 
 type Segment struct {
-	id       SegmentId
+	ref      SegmentRef
 	filename string
 	lock     *sync.RWMutex
 	file     *os.File
@@ -36,10 +45,10 @@ type Segment struct {
 	logger   tidy.Logger
 }
 
-func CreateSegment(id SegmentId, filename string, size int64) (*Segment, error) {
+func CreateSegment(ref SegmentRef, filename string, size int64) (*Segment, error) {
 	logger := tidy.GetLogger().Withs(tidy.Fields{
-		"segment":  id,
-		"filename": filename})
+		"segment": ref.String(),
+	})
 
 	file, err := os.Create(filename)
 	if err != nil {
@@ -68,7 +77,7 @@ func CreateSegment(id SegmentId, filename string, size int64) (*Segment, error) 
 	}
 
 	return &Segment{
-		id:       id,
+		ref:      ref,
 		filename: file.Name(),
 		lock:     new(sync.RWMutex),
 		file:     file,
