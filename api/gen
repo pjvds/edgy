@@ -13,6 +13,9 @@ fi
 
 if [[ "$(protoc --version)" != "libprotoc 3.0.0" ]]; then
 	echo "wrong version of protoc"
+	echo
+	echo "currently it needs to be installed from source."
+	echo "see: https://github.com/google/protobuf/blob/master/INSTALL.txt"
 	exit 1
 fi
 
@@ -27,3 +30,4 @@ if ! type protoc-gen-go &> /dev/null; then
 fi
 
 protoc -I ./ edgy.proto --go_out=plugins=grpc:.
+echo "done"
