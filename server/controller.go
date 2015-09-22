@@ -2,7 +2,6 @@ package server
 
 import (
 	"errors"
-	"path/filepath"
 	"sync"
 
 	"github.com/pjvds/edgy/api"
@@ -14,10 +13,18 @@ import (
 type Controller struct {
 	logger tidy.Logger
 
-	partitions     map[storage.PartitionId]*storage.Partition
+	partitions     map[storage.PartitionRef]*PartitionController
 	partitionsLock sync.RWMutex
 
 	directory string
+}
+
+func NewController(directory string) *Controller {
+	return &Controller{
+		logger:     tidy.GetLogger(),
+		partitions: make(map[storage.PartitionRef]*PartitionController),
+		directory:  directory,
+	}
 }
 
 func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) (*api.AppendReply, error) {
@@ -25,7 +32,6 @@ func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) 
 		Topic:     request.Topic,
 		Partition: storage.PartitionId(request.Partition),
 	}
-	this.logger.With("partition", ref.String()).Debug("handling incoming append request")
 
 	partition, err := this.getPartition(ref)
 	if err != nil {
@@ -33,19 +39,7 @@ func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) 
 		return nil, err
 	}
 
-	messageSet := storage.NewMessageSetFromBuffer(request.Messages)
-	this.logger.With("partition", ref.String()).Debug("appending to partition")
-
-	if err := partition.Append(messageSet); err != nil {
-		this.logger.With("partition", ref.String()).WithError(err).Error("append failed")
-		return nil, err
-	}
-
-	this.logger.With("partition", ref.String()).Debug("append success")
-
-	return &api.AppendReply{
-		Ok: true,
-	}, nil
+	return partition.HandleAppendRequest(request)
 }
 
 func (this *Controller) Read(ctx context.Context, request *api.ReadRequest) (*api.ReadReply, error) {
@@ -56,21 +50,17 @@ func (this *Controller) Ping(ctx context.Context, request *api.PingRequest) (*ap
 	return &api.PingReply{}, nil
 }
 
-func (this *Controller) getPartition(ref storage.PartitionRef) (*storage.Partition, error) {
+func (this *Controller) getPartition(ref storage.PartitionRef) (*PartitionController, error) {
 	this.partitionsLock.RLock()
-	partition, ok := this.partitions[ref.Partition]
+	partition, ok := this.partitions[ref]
 	this.partitionsLock.RUnlock()
 
 	if !ok {
 		this.partitionsLock.Lock()
 		defer this.partitionsLock.Unlock()
 
-		partitionDir := filepath.Join(this.directory, ref.Topic, ref.Partition.String())
-		if newPartition, err := storage.InitializePartition(ref, storage.DefaultConfig, partitionDir); err != nil {
-			return nil, err
-		} else {
-			partition = newPartition
-		}
+		partition = NewPartitionController(ref, this.directory)
+		this.partitions[ref] = partition
 	}
 
 	return partition, nil

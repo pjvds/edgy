@@ -17,11 +17,8 @@ type Server struct {
 func ListenAndServe(address string, directory string) error {
 	logger := tidy.GetLogger()
 	server := &Server{
-		logger: logger,
-		controller: &Controller{
-			logger:    logger,
-			directory: directory,
-		},
+		logger:     logger,
+		controller: NewController(directory),
 	}
 
 	logger.With("address", address).Debug("creating listeners")
