@@ -84,6 +84,10 @@ func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) 
 	}, nil
 }
 
+func (this *Controller) Ping(ctx context.Context, request *api.PingRequest) (*api.PingReply, error) {
+	return &api.PingReply{}, nil
+}
+
 func (this *Controller) getPartition(id storage.PartitionId) (*storage.Partition, error) {
 	this.partitionsLock.RLock()
 	partition, ok := this.partitions[id]

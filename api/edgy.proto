@@ -1,18 +1,41 @@
 syntax = "proto3";
 
-option java_package = "io.edgy.api";
-option objc_class_prefix = "HLW";
-
 package api;
 
 service Edgy {
 	rpc Append(AppendRequest) returns (AppendReply) {}
+	rpc Read(ReadRequest) returns (ReadReply) {}
+	rpc Ping(PingRequest) returns(PingReply) {}
+}
+
+message PingRequest {
+}
+
+message PingReply {
+}
+
+message OffsetData {
+	uint64 message_id = 1;
+	int64 end_position = 2;
+	uint64 segment_id = 3;
 }
 
 message AppendRequest {
 	string topic = 1;
 	int32 partition = 2;
 	bytes messages = 3;
+}
+
+message ReadReply {
+	bytes messages = 1;
+	OffsetData offset = 2;
+}
+
+message ReadRequest {
+	string topic = 1;
+	int32 partition = 2;
+
+	OffsetData offset = 3;
 }
 
 message AppendReply {
