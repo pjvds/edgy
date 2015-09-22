@@ -14,22 +14,16 @@ var (
 	ErrSegmentFull = errors.New("segment full")
 )
 
-type SegmentId struct {
-	Topic     string
-	Partition int32
-	Segment   int64
-}
-
-func (this SegmentId) Next() SegmentId {
-	return SegmentId{
-		Topic:     this.Topic,
-		Partition: this.Partition,
-		Segment:   this.Segment + 1,
-	}
-}
+type SegmentId uint64
 
 func (this SegmentId) String() string {
-	return fmt.Sprintf("%v/%v/%v", this.Topic, this.Partition, this.Segment)
+	value := uint64(this)
+	return fmt.Sprint(value)
+}
+
+type TopicPartition struct {
+	Topic     string
+	Partition PartitionId
 }
 
 type Segment struct {
@@ -43,7 +37,9 @@ type Segment struct {
 }
 
 func CreateSegment(id SegmentId, filename string, size int64) (*Segment, error) {
-	logger := tidy.GetLogger().With("segment", id.String())
+	logger := tidy.GetLogger().Withs(tidy.Fields{
+		"segment":  id,
+		"filename": filename})
 
 	file, err := os.Create(filename)
 	if err != nil {
@@ -72,6 +68,7 @@ func CreateSegment(id SegmentId, filename string, size int64) (*Segment, error) 
 	}
 
 	return &Segment{
+		id:       id,
 		filename: file.Name(),
 		lock:     new(sync.RWMutex),
 		file:     file,
@@ -83,23 +80,23 @@ func CreateSegment(id SegmentId, filename string, size int64) (*Segment, error) 
 // SpaceLeftFor returns true when the message set can be appended
 // to this segment; otherwise, false.
 func (this *Segment) SpaceLeftFor(messages *MessageSet) bool {
-
 	spaceLeft := this.size - this.position
-	ok := spaceLeft >= messages.Len64()
+	required := messages.DataLen64()
+	ok := spaceLeft >= required
 
-	if !ok && logger.IsDebug() {
+	if !ok && this.logger.IsDebug() {
 		this.logger.Withs(tidy.Fields{
 			"file":       this.filename,
 			"space_left": spaceLeft,
-			"required":   messages.Len64(),
-			"difference": spaceLeft - messages.Len64(),
+			"required":   required,
+			"shortage":   required - spaceLeft,
 		}).Debug("no space left for message set")
 	}
 
 	return ok
 }
 
-func (this *Segment) Append(messages *MessageSet, sequencer *MessageIdSequencer) error {
+func (this *Segment) Append(messages *MessageSet) error {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
@@ -114,9 +111,6 @@ func (this *Segment) Append(messages *MessageSet, sequencer *MessageIdSequencer)
 		}).Debug("segment full")
 		return ErrSegmentFull
 	}
-
-	// align messages in set with our sequencer.
-	messages.Align(sequencer)
 
 	// WriteAt tries to write all bytes, no need to check the written bytes count.
 	// Because an error is returned when this is not equal to the number of bytes we
@@ -134,7 +128,7 @@ func (this *Segment) Append(messages *MessageSet, sequencer *MessageIdSequencer)
 		return err
 	} else {
 		// the write succeeded, advance position
-		this.position += int64(messages.Len())
+		this.position += messages.DataLen64()
 
 		return nil
 	}

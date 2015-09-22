@@ -41,10 +41,6 @@ func (this RawMessage) Len() int {
 
 type MessageId uint64
 
-type MessageIdSequencer struct {
-	current MessageId
-}
-
 func NewMessage(id MessageId, content []byte) RawMessage {
 	contentLen := len(content)
 	size := HEADER_LENGTH + contentLen
@@ -59,15 +55,12 @@ func NewMessage(id MessageId, content []byte) RawMessage {
 	return RawMessage(buffer)
 }
 
-func (this *MessageIdSequencer) GetNext() MessageId {
-	id := this.current
-	this.current = this.current.Next()
-
-	return id
-}
-
 func (this MessageId) Next() MessageId {
 	return MessageId(this + 1)
+}
+
+func (this MessageId) NextN(n int) MessageId {
+	return this + MessageId(n)
 }
 
 type MessageHash int64
@@ -75,6 +68,18 @@ type MessageHash int64
 var EmptyMessageSet = &MessageSet{
 	buffer:  make([]byte, 0, 0),
 	entries: make([]SetEntry, 0, 0),
+}
+
+type Offset struct {
+	MessageId    MessageId
+	SegmentId    SegmentId
+	LastPosition int64
+}
+
+func (this Offset) IsEmpty() bool {
+	return this.MessageId == MessageId(0) &&
+		this.SegmentId == SegmentId(0) &&
+		this.LastPosition == 0
 }
 
 type MessageSet struct {
@@ -152,26 +157,34 @@ func NewMessageSet(messages []RawMessage) *MessageSet {
 }
 
 // Len returns the number of raw bytes of the total set.
-func (this *MessageSet) Len() int {
+func (this *MessageSet) DataLen() int {
 	return len(this.buffer)
 }
 
 // Len returns the number of raw bytes of the total set.
-func (this *MessageSet) Len64() int64 {
-	return int64(this.Len())
+func (this *MessageSet) DataLen64() int64 {
+	return int64(this.DataLen())
 }
 
-func (this *MessageSet) Align(sequencer *MessageIdSequencer) {
-	offset := int32(0)
+func (this *MessageSet) MessageCount() int {
+	return len(this.entries)
+}
+
+// Align the ids of the messages in the set with
+// the provided start id.
+//
+// If there are 5 messages in the set, and the provided
+// fromId is 12, the the messages will have the following
+// ids:
+// [0:13, 1:14, 2:15, 3:16, 4:17]
+func (this *MessageSet) Align(fromId MessageId) {
+	id := fromId.Next()
 
 	for index, entry := range this.entries {
-		id := sequencer.GetNext()
-
 		entry.Id = id
 		byteOrder.PutUint64(this.buffer[entry.Offset+INDEX_ID:], uint64(id))
 
 		this.entries[index] = entry
-
-		offset += int32(entry.Offset)
+		id = id.Next()
 	}
 }

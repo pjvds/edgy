@@ -12,9 +12,7 @@ func TestMessageSetAlign(t *testing.T) {
 		NewMessage(0, []byte("bar")),
 	})
 
-	set.Align(&MessageIdSequencer{
-		current: 6,
-	})
+	set.Align(5)
 
 	assert.Equal(t, MessageId(6), set.entries[0].Id)
 	assert.Equal(t, MessageId(7), set.entries[1].Id)

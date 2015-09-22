@@ -14,27 +14,60 @@ import (
 
 var ErrClosed = errors.New("closed")
 
-type PartitionId struct {
-	Topic     string
-	Partition int32
+type SegmentList struct {
+	segments map[SegmentId]*Segment
+	last     *Segment
+	lock     sync.RWMutex
 }
 
+func NewSegmentList() *SegmentList {
+	return &SegmentList{
+		segments: make(map[SegmentId]*Segment),
+	}
+}
+
+func (this *SegmentList) Append(id SegmentId, segment *Segment) {
+	this.lock.Lock()
+	defer this.lock.Unlock()
+
+	this.segments[id] = segment
+	this.last = segment
+}
+
+func (this *SegmentList) Last() (*Segment, bool) {
+	this.lock.RLock()
+	defer this.lock.RUnlock()
+
+	last := this.last
+	ok := last != nil
+
+	return last, ok
+}
+
+func (this *SegmentList) Get(id SegmentId) (*Segment, bool) {
+	this.lock.RLock()
+	defer this.lock.RUnlock()
+
+	segment, ok := this.segments[id]
+	return segment, ok
+}
+
+type PartitionId uint32
+
 func (this PartitionId) String() string {
-	return fmt.Sprintf("%v/%v", this.Topic, this.Partition)
+	value := uint32(this)
+	return fmt.Sprint(value)
 }
 
 type Partition struct {
 	id     PartitionId
 	config PartitionConfig
 
-	directory     string
-	segments      []*Segment
-	activeSegment *Segment
+	lastMessageId MessageId
 
-	index       *Index
-	idSequencer *MessageIdSequencer
+	directory string
 
-	lock *sync.RWMutex
+	segments *SegmentList
 
 	closed bool
 	logger tidy.Logger
@@ -89,123 +122,137 @@ func InitializePartition(id PartitionId, config PartitionConfig, directory strin
 		return nil, err
 	}
 
-	filename := path.Join(directory, "1.sd")
-	segment, err := CreateSegment(
-		SegmentId{
-			Topic:     id.Topic,
-			Partition: id.Partition,
-			Segment:   1,
-		}, filename, config.SegmentSize)
-
-	if err != nil {
-		logger.WithError(err).
-			With("filename", filename).
-			Error("segment creation failed")
-
-		return nil, err
-	}
-
 	return &Partition{
-		id:            id,
-		index:         &Index{},
-		idSequencer:   &MessageIdSequencer{},
-		segments:      []*Segment{segment},
-		activeSegment: segment,
-		lock:          new(sync.RWMutex),
-		directory:     directory,
-		config:        config,
-		logger:        logger,
+		id:        id,
+		segments:  NewSegmentList(),
+		directory: directory,
+		config:    config,
+		logger:    logger,
 	}, nil
 }
 
 func (this *Partition) Close() {
-	this.lock.Lock()
-	defer this.lock.Unlock()
-
-	// TODO: close segments?
+	// TODO: close all segments
 }
 
-func (this *Partition) rollToNextSegment() error {
-	filename := path.Join(this.directory, fmt.Sprint(len(this.segments)+1, ".sd"))
-	nextSegment, err := CreateSegment(this.activeSegment.id.Next(), filename, this.config.SegmentSize)
+func (this *Partition) rollToNextSegment() (*Segment, error) {
+	id := SegmentId(this.lastMessageId.Next())
+	filename := path.Join(this.directory, id.String()+".sd")
+
+	segment, err := CreateSegment(id, filename, this.config.SegmentSize)
 
 	if err != nil {
 		this.logger.WithError(err).Debug("segment creation failed")
-		return err
+		return nil, err
 	}
 
-	previous := this.activeSegment
-
-	this.segments = append(this.segments, nextSegment)
-	this.activeSegment = nextSegment
+	previous, _ := this.segments.Last()
+	this.segments.Append(id, segment)
 
 	this.logger.Withs(tidy.Fields{
-		"new":      tidy.Stringify(this.activeSegment),
+		"new":      tidy.Stringify(segment),
 		"previous": tidy.Stringify(previous),
-		"count":    len(this.segments),
 	}).Debug("rolled to new segment")
 
-	return nil
+	return segment, nil
 }
 
 // Append writes the messages in the set to the file system. The order is preserved.
 func (this *Partition) Append(messages *MessageSet) error {
-	this.lock.Lock()
-	defer this.lock.Unlock()
+	messages.Align(this.lastMessageId)
+	segment, ok := this.segments.Last()
 
-	if !this.activeSegment.SpaceLeftFor(messages) {
-		this.logger.With("segment", tidy.Stringify(this.activeSegment)).Debug("no space left for message set in active segment")
+	if !ok {
+		this.logger.Debug("no segment for partition yet")
 
-		this.rollToNextSegment()
+		if rolledTo, err := this.rollToNextSegment(); err != nil {
+			return err
+		} else {
+			segment = rolledTo
+		}
+
 	}
 
-	if err := this.activeSegment.Append(messages, this.idSequencer); err != nil {
+	if !segment.SpaceLeftFor(messages) {
+		this.logger.With("segment", tidy.Stringify(segment)).Debug("no space left for message set in active segment")
+
+		if rolledTo, err := this.rollToNextSegment(); err != nil {
+			return err
+		} else {
+			segment = rolledTo
+		}
+	}
+
+	if err := segment.Append(messages); err != nil {
 		return err
 	}
 
-	this.index.Append(messages)
+	this.lastMessageId = this.lastMessageId.NextN(messages.MessageCount())
+
 	return nil
 }
 
-func (this *Partition) ReadFrom(fromId MessageId, eagerFetchUntilMaxBytes int) (*MessageSet, error) {
-	this.lock.RLock()
-	defer this.lock.RUnlock()
-
+func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (*MessageSet, error) {
 	if this.closed {
 		this.logger.WithError(ErrClosed).Debug("ReadFrom called while closed")
 		return nil, ErrClosed
 	}
 
-	entry, ok := this.index.FindLastLessOrEqual(fromId)
-	if !ok {
-		this.logger.With("fromId", fromId).Debug("no index entry found")
+	this.logger.Withs(tidy.Fields{
+		"offset": tidy.Stringify(offset),
+	}).Debug("handling ReadFrom")
 
-		return EmptyMessageSet, nil
-	}
-	logger.Withs(tidy.Fields{
-		"fromId":      fromId,
-		"index_entry": entry,
-	}).Debug("index entry found")
+	// TODO: return empty set when offset is beyond lastMessageId of the writer.
 
 	buffer := make([]byte, eagerFetchUntilMaxBytes)
 	// TODO: defer this.buffers.Put(buffer)
 
 	// TODO: offset should already be a int64
-	read, err := this.activeSegment.ReadAt(buffer, int64(entry.Offset))
+	// TODO: handle offset without only message id
+	segmentId := offset.SegmentId
+	position := offset.LastPosition + 1
 
-	if err != nil && err != io.EOF {
-		logger.WithError(err).Withs(tidy.Fields{
-			"at":            entry.Offset,
-			"buffer_length": len(buffer),
-			"bytes_read":    read,
-		}).Warn("failed to read from partition file")
-
-		return nil, err
+	if offset.IsEmpty() {
+		segmentId = SegmentId(1)
+		position = 0
 	}
 
-	if read == 0 {
-		return nil, err
-	}
+	for {
+		segment, ok := this.segments.Get(segmentId)
+		if !ok {
+			return nil, errors.New("segment not found")
+		}
 
-	return NewMessageSetFromBuffer(buffer[0:read]), nil
+		read, err := segment.ReadAt(buffer, position)
+
+		if err != nil && err != io.EOF {
+			logger.WithError(err).Withs(tidy.Fields{
+				"buffer_length": len(buffer),
+				"bytes_read":    read,
+			}).Warn("failed to read from partition file")
+
+			return nil, err
+		}
+
+		if err == io.EOF {
+			// we are end of file, try next segment.
+			segmentId = SegmentId(offset.MessageId.Next())
+			position = 0
+			continue
+		}
+
+		// we are having something in the buffer
+		if buffer[0] != START_VALUE {
+			this.logger.Withs(tidy.Fields{
+				"segment_id": segmentId,
+				"position":   position,
+				"offset":     tidy.Stringify(offset),
+				"byte_value": buffer[0],
+			}).Error("no message found at current position")
+
+			return nil, errors.New("no message found at current position")
+		}
+
+		return NewMessageSetFromBuffer(buffer[0:read]), nil
+	}
 }
