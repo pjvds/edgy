@@ -27,7 +27,7 @@ type PartitionController struct {
 }
 
 func NewPartitionController(ref storage.PartitionRef, rootDir string) *PartitionController {
-	return &PartitionController{
+	controller := &PartitionController{
 		ref:            ref,
 		rootDir:        rootDir,
 		logger:         tidy.GetLogger(),
@@ -35,6 +35,10 @@ func NewPartitionController(ref storage.PartitionRef, rootDir string) *Partition
 
 		ready: make(chan struct{}),
 	}
+	go controller.initialize()
+	go controller.appendLoop()
+
+	return controller
 }
 
 func (this *PartitionController) initialize() {
