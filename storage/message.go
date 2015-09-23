@@ -45,7 +45,6 @@ func NewMessage(id MessageId, content []byte) RawMessage {
 	contentLen := len(content)
 	size := HEADER_LENGTH + contentLen
 	buffer := make([]byte, size)
-
 	buffer[INDEX_START] = START_VALUE
 	byteOrder.PutUint64(buffer[INDEX_ID:], uint64(id))
 	byteOrder.PutUint32(buffer[INDEX_LENGTH:], uint32(contentLen))
@@ -76,6 +75,26 @@ type Offset struct {
 	LastPosition int64
 }
 
+type Header struct {
+	Magic         byte
+	MessageId     MessageId
+	ContentLength int32
+	ContentHash   uint64
+}
+
+func ReadHeader(buffer []byte) Header {
+	if len(buffer) < HEADER_LENGTH {
+		panic("buffer size too small")
+	}
+
+	return Header{
+		Magic:         buffer[INDEX_START],
+		MessageId:     MessageId(byteOrder.Uint64(buffer[INDEX_ID:])),
+		ContentLength: int32(byteOrder.Uint32(buffer[INDEX_LENGTH:])),
+		ContentHash:   byteOrder.Uint64(buffer[INDEX_HASH:]),
+	}
+}
+
 func (this Offset) IsEmpty() bool {
 	return this.MessageId == MessageId(0) &&
 		this.SegmentId == SegmentId(0) &&
@@ -91,7 +110,7 @@ type SetEntry struct {
 	Id     MessageId
 	Offset int
 	Length int
-	Hash   int64
+	Hash   uint64
 }
 
 func NewMessageSetFromBuffer(buffer []byte) *MessageSet {
@@ -110,7 +129,7 @@ func NewMessageSetFromBuffer(buffer []byte) *MessageSet {
 		entry := SetEntry{
 			Id:     MessageId(byteOrder.Uint64(buffer[position+INDEX_ID:])),
 			Length: int(byteOrder.Uint32(buffer[position+INDEX_LENGTH:])),
-			Hash:   int64(byteOrder.Uint64(buffer[position+INDEX_HASH:])),
+			Hash:   byteOrder.Uint64(buffer[position+INDEX_HASH:]),
 			Offset: int(position),
 		}
 
