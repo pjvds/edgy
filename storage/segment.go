@@ -60,7 +60,7 @@ func checkSegment(r io.Reader) (checkResult, error) {
 	hasher := xxhash.New64()
 
 	headerBuf := make([]byte, HEADER_LENGTH)
-	//copyBuf := make([]byte, 5*1000*1000)
+	copyBuf := make([]byte, 5*1000*1000)
 
 	position := int64(0)
 
@@ -90,14 +90,9 @@ func checkSegment(r io.Reader) (checkResult, error) {
 			break
 		}
 
-		contentBuf := make([]byte, header.ContentLength)
-		read, err := reader.Read(contentBuf)
-
-		logger.With("header", tidy.Stringify(header)).With("content", string(contentBuf)).Error("FOOBAR")
-
-		//hasher.Reset()
-		//contentReader := io.LimitReader(reader, int64(header.ContentLength))
-		//read, err := io.CopyBuffer(hasher, contentReader, copyBuf)
+		hasher.Reset()
+		contentReader := io.LimitReader(reader, int64(header.ContentLength))
+		read, err := io.CopyBuffer(hasher, contentReader, copyBuf)
 
 		if err != nil {
 			if err == io.EOF {
@@ -110,7 +105,7 @@ func checkSegment(r io.Reader) (checkResult, error) {
 			return result, err
 		}
 
-		if read != int(header.ContentLength) {
+		if read != int64(header.ContentLength) {
 			logger.Withs(tidy.Fields{
 				"content_lenght": header.ContentLength,
 				"read":           read,
@@ -118,7 +113,7 @@ func checkSegment(r io.Reader) (checkResult, error) {
 			break
 		}
 
-		if xxhash.Checksum64(contentBuf) != header.ContentHash {
+		if hasher.Sum64() != header.ContentHash {
 			logger.Withs(tidy.Fields{
 				"actual_hash":   hasher.Sum64(),
 				"expected_hash": header.ContentHash,
@@ -126,12 +121,13 @@ func checkSegment(r io.Reader) (checkResult, error) {
 			break
 		}
 
-		position += int64(HEADER_LENGTH + header.ContentLength)
-
 		result.IsEmpty = false
 		result.LastMessageId = header.MessageId
 		result.LastMessageContentLength = header.ContentLength
 		result.LastMessagePosition = position
+
+		// advance position to potential starting point of the next message
+		position += int64(HEADER_LENGTH + header.ContentLength)
 	}
 
 	return result, nil
