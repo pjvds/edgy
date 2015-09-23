@@ -126,25 +126,29 @@ func createOrEnsureDirectoryIsEmpty(directory string) error {
 	return nil
 }
 
-func InitializePartition(ref PartitionRef, config PartitionConfig, directory string) (*Partition, error) {
-	logger := tidy.GetLogger().With("partition", ref.String())
-
-	// we expect the directory to be non-existing or empty.
-	if err := createOrEnsureDirectoryIsEmpty(directory); err != nil {
-		logger.WithError(err).Withs(tidy.Fields{
-			"directory": directory,
-		}).Error("log initialization failed")
-
-		return nil, err
-	}
-
+func newPartition(ref PartitionRef, config PartitionConfig, directory string) *Partition {
 	return &Partition{
 		ref:       ref,
 		segments:  NewSegmentList(),
 		directory: directory,
 		config:    config,
-		logger:    logger,
-	}, nil
+		logger:    tidy.GetLogger().With("partition", ref.String()),
+	}
+}
+
+func CreatePartition(ref PartitionRef, config PartitionConfig, directory string) (*Partition, error) {
+	partition := newPartition(ref, config, directory)
+
+	// we expect the directory to be non-existing or empty.
+	if err := createOrEnsureDirectoryIsEmpty(directory); err != nil {
+		logger.WithError(err).Withs(tidy.Fields{
+			"directory": directory,
+		}).Error("initialization failed")
+
+		return nil, err
+	}
+
+	return partition, nil
 }
 
 func (this *Partition) Close() {
