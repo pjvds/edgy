@@ -21,10 +21,12 @@ func TestCheckSegment(t *testing.T) {
 		Segment:   SegmentId(1),
 	}, filename, 50*1000)
 
+	lastMessageContent := []byte("42")
+
 	messages := NewMessageSet([]RawMessage{
 		NewMessage(1, []byte("foo bar")),
 		NewMessage(2, []byte("baz")),
-		NewMessage(3, []byte("42")),
+		NewMessage(3, lastMessageContent),
 	})
 
 	err = segment.Append(messages)
@@ -43,4 +45,6 @@ func TestCheckSegment(t *testing.T) {
 
 	assert.Equal(t, false, check.IsEmpty)
 	assert.Equal(t, MessageId(3), check.LastMessageId)
+	assert.Equal(t, len(lastMessageContent), int(check.LastMessageContentLength))
+	assert.Equal(t, messages.entries[2].Offset, int(check.LastMessagePosition))
 }

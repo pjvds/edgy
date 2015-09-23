@@ -1,14 +1,13 @@
 package storage
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"sync"
 
-	"github.com/OneOfOne/xxhash"
+	"github.com/OneOfOne/xxhash/native"
 	"github.com/pjvds/tidy"
 )
 
@@ -55,13 +54,11 @@ type checkResult struct {
 	LastMessageContentLength int32
 }
 
-func checkSegment(r io.Reader) (checkResult, error) {
-	reader := bufio.NewReader(r)
+func checkSegment(reader io.Reader) (checkResult, error) {
+	//reader := bufio.NewReader(r)
 	hasher := xxhash.New64()
 
 	headerBuf := make([]byte, HEADER_LENGTH)
-	copyBuf := make([]byte, 5*1000*1000)
-
 	position := int64(0)
 
 	result := checkResult{
@@ -83,39 +80,65 @@ func checkSegment(r io.Reader) (checkResult, error) {
 		header := ReadHeader(headerBuf)
 
 		if header.Magic != START_VALUE {
-			logger.Withs(tidy.Fields{
-				"start_value": START_VALUE,
-				"magic":       header.Magic,
-			}).Debug("magic is not a START_VALUE")
+			if header.Magic != 0x00 {
+				logger.Withs(tidy.Fields{
+					"start_value": START_VALUE,
+					"header":      tidy.Stringify(header),
+					"magic":       header.Magic,
+					"position":    position,
+				}).Warn("magic is not a START_VALUE or 0x00")
+			} else {
+				logger.Withs(tidy.Fields{
+					"magic":    header.Magic,
+					"position": position,
+				}).Debug("end of messages")
+			}
 			break
 		}
 
+		if !result.IsEmpty && header.MessageId != result.LastMessageId.Next() {
+			logger.Withs(tidy.Fields{
+				"actual_message_id":   header.MessageId,
+				"header":              tidy.Stringify(header),
+				"expected_message_id": result.LastMessageId.Next(),
+			}).Info("message id sequence mismatch")
+		}
+
 		hasher.Reset()
-		contentReader := io.LimitReader(reader, int64(header.ContentLength))
-		read, err := io.CopyBuffer(hasher, contentReader, copyBuf)
+		read, err := io.CopyN(hasher, reader, int64(header.ContentLength))
 
 		if err != nil {
 			if err == io.EOF {
 				logger.Withs(tidy.Fields{
+					"header":         tidy.Stringify(header),
 					"content_lenght": header.ContentLength,
 					"expected_hash":  header.ContentHash,
 				}).WithError(err).Debug("EOF while hashing content")
 				break
 			}
+
+			logger.Withs(tidy.Fields{
+				"read":           read,
+				"header":         tidy.Stringify(header),
+				"content_length": header.ContentLength,
+			}).WithError(err).Debug("error while reading content")
+
 			return result, err
 		}
 
 		if read != int64(header.ContentLength) {
 			logger.Withs(tidy.Fields{
 				"content_lenght": header.ContentLength,
+				"header":         tidy.Stringify(header),
 				"read":           read,
-			}).WithError(err).Debug("read mismatch while hashing content")
+			}).Debug("read count mismatch while hashing content")
 			break
 		}
 
 		if hasher.Sum64() != header.ContentHash {
 			logger.Withs(tidy.Fields{
 				"actual_hash":   hasher.Sum64(),
+				"header":        tidy.Stringify(header),
 				"expected_hash": header.ContentHash,
 			}).Debug("content hash doesn't match header")
 			break
@@ -203,6 +226,10 @@ func (this *Segment) Sync() error {
 func (this *Segment) Close() error {
 	this.lock.Lock()
 	defer this.lock.Unlock()
+
+	if err := this.file.Sync(); err != nil {
+		return err
+	}
 
 	return this.file.Close()
 }

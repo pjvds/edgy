@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/OneOfOne/xxhash"
+	"github.com/OneOfOne/xxhash/native"
 	"github.com/pjvds/tidy"
 )
 

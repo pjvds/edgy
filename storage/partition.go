@@ -7,6 +7,10 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/pjvds/tidy"
@@ -34,14 +38,11 @@ func (this *SegmentList) Append(id SegmentId, segment *Segment) {
 	this.last = segment
 }
 
-func (this *SegmentList) Last() (*Segment, bool) {
+func (this *SegmentList) Last() *Segment {
 	this.lock.RLock()
 	defer this.lock.RUnlock()
 
-	last := this.last
-	ok := last != nil
-
-	return last, ok
+	return this.last
 }
 
 func (this *SegmentList) Get(id SegmentId) (*Segment, bool) {
@@ -137,6 +138,98 @@ func newPartition(ref PartitionRef, config PartitionConfig, directory string) *P
 	}
 }
 
+func OpenPartition(ref PartitionRef, config PartitionConfig, directory string) (*Partition, error) {
+	files, err := ioutil.ReadDir(directory)
+	if err != nil {
+		return nil, err
+	}
+
+	partition := newPartition(ref, config, directory)
+
+	segmentFiles := make([]string, 0, len(files))
+
+	for _, file := range files {
+		if filepath.Ext(file.Name()) == ".sd" {
+			segmentFiles = append(segmentFiles, filepath.Join(directory, file.Name()))
+		}
+	}
+
+	if len(segmentFiles) == 0 {
+		return nil, errors.New("no segment data files")
+	}
+
+	sort.Strings(segmentFiles)
+
+	lastIndex := len(segmentFiles) - 1
+	for index, filename := range segmentFiles {
+		segmentId := ReadSegmentIdFromFilename(filename)
+
+		file, err := os.Open(segmentFiles[len(segmentFiles)-1])
+		if err != nil {
+			return nil, err
+		}
+		stat, err := file.Stat()
+		if err != nil {
+			return nil, err
+		}
+
+		if index < lastIndex {
+			segment := &Segment{
+				ref:      ref.ToSegmentRef(segmentId),
+				file:     file,
+				filename: filename,
+				size:     stat.Size(),
+				lock:     new(sync.RWMutex),
+			}
+			partition.segments.Append(segmentId, segment)
+		} else {
+			check, err := checkSegment(file)
+			if err != nil {
+				return nil, err
+			}
+
+			if check.IsEmpty {
+				return nil, errors.New("last segment is empty")
+			}
+
+			segmentId := ReadSegmentIdFromFilename(file.Name())
+			segment := &Segment{
+				ref:      ref.ToSegmentRef(segmentId),
+				file:     file,
+				lock:     new(sync.RWMutex),
+				filename: file.Name(),
+				position: check.LastMessagePosition + int64(HEADER_LENGTH+check.LastMessageContentLength),
+				size:     stat.Size(),
+			}
+
+			partition.segments.Append(segmentId, segment)
+			partition.lastMessageId = check.LastMessageId
+		}
+	}
+
+	logger.Withs(tidy.Fields{
+		"partition":           ref.String(),
+		"directory":           directory,
+		"lastMessageId":       partition.lastMessageId,
+		"lastSegmentId":       partition.segments.Last().ref.Segment,
+		"lastMessagePosition": partition.segments.Last().position,
+	}).Debug("opened partition")
+
+	return partition, nil
+}
+
+func ReadSegmentIdFromFilename(filename string) SegmentId {
+	base := filepath.Base(filename)
+	name := strings.TrimSuffix(base, filepath.Ext(filename))
+	n, err := strconv.ParseInt(name, 10, 64)
+
+	if err != nil {
+		panic(err)
+	}
+
+	return SegmentId(n)
+}
+
 func CreatePartition(ref PartitionRef, config PartitionConfig, directory string) (*Partition, error) {
 	partition := newPartition(ref, config, directory)
 
@@ -154,6 +247,12 @@ func CreatePartition(ref PartitionRef, config PartitionConfig, directory string)
 
 func (this *Partition) Close() {
 	// TODO: close all segments
+	// TODO: sync
+	for _, segment := range this.segments.segments {
+		if err := segment.Close(); err != nil {
+			panic(err)
+		}
+	}
 }
 
 func (this *Partition) rollToNextSegment() (*Segment, error) {
@@ -181,9 +280,9 @@ func (this *Partition) rollToNextSegment() (*Segment, error) {
 // Append writes the messages in the set to the file system. The order is preserved.
 func (this *Partition) Append(messages *MessageSet) error {
 	messages.Align(this.lastMessageId)
-	segment, ok := this.segments.Last()
+	segment := this.segments.Last()
 
-	if !ok {
+	if segment == nil {
 		if rolledTo, err := this.rollToNextSegment(); err != nil {
 			return err
 		} else {
