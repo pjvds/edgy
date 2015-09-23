@@ -3,8 +3,22 @@ package storage
 import (
 	"testing"
 
+	"github.com/OneOfOne/xxhash"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestNewMessage(t *testing.T) {
+	id := MessageId(5)
+	content := []byte("foobar")
+	message := NewMessage(id, content)
+
+	header := ReadHeader(message)
+	assert.Equal(t, START_VALUE, header.Magic)
+	assert.Equal(t, id, header.MessageId)
+	assert.Equal(t, len(content), int(header.ContentLength))
+	assert.Equal(t, string(content), string(message[INDEX_CONTENT:]))
+	assert.Equal(t, xxhash.Checksum64(message[INDEX_CONTENT:]), header.ContentHash)
+}
 
 func TestMessageSetAlign(t *testing.T) {
 	set := NewMessageSet([]RawMessage{

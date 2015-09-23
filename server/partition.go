@@ -49,7 +49,7 @@ func (this *PartitionController) initialize() {
 	delay := backoff.Exp(1*time.Millisecond, 15*time.Second)
 
 	for {
-		storage, err := storage.InitializePartition(this.ref, storage.DefaultConfig, directory)
+		storage, err := storage.CreatePartition(this.ref, storage.DefaultConfig, directory)
 
 		if err != nil {
 			this.logger.WithError(err).Withs(tidy.Fields{

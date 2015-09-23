@@ -16,7 +16,7 @@ func TestAppendRollingSegments(t *testing.T) {
 	}
 	defer os.RemoveAll(directory)
 
-	log, err := InitializePartition(
+	partition, err := CreatePartition(
 		PartitionRef{
 			Topic:     "my-topic",
 			Partition: PartitionId(1),
@@ -28,14 +28,14 @@ func TestAppendRollingSegments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer log.Close()
+	defer partition.Close()
 
-	err = log.Append(NewMessageSet([]RawMessage{
+	err = partition.Append(NewMessageSet([]RawMessage{
 		NewMessage(0, randombytes.Make(50-HEADER_LENGTH)),
 	}))
 	assert.Nil(t, err)
 
-	err = log.Append(NewMessageSet([]RawMessage{
+	err = partition.Append(NewMessageSet([]RawMessage{
 		NewMessage(0, randombytes.Make(50-HEADER_LENGTH)),
 	}))
 	assert.Nil(t, err)
@@ -52,23 +52,23 @@ func TestAppendRoundtrip(t *testing.T) {
 	}
 	defer os.RemoveAll(directory)
 
-	log, err := InitializePartition(PartitionRef{
+	partition, err := CreatePartition(PartitionRef{
 		Topic:     "my-topic",
 		Partition: PartitionId(1),
 	}, DefaultConfig, directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer log.Close()
+	defer partition.Close()
 
-	err = log.Append(NewMessageSet([]RawMessage{
+	err = partition.Append(NewMessageSet([]RawMessage{
 		NewMessage(0, []byte("foo bar")),
 		NewMessage(0, []byte("baz")),
 		NewMessage(0, []byte("42")),
 	}))
 	assert.Nil(t, err)
 
-	readResult, err := log.ReadFrom(Offset{}, 1000)
+	readResult, err := partition.ReadFrom(Offset{}, 1000)
 	assert.Nil(t, err)
 	assert.Len(t, readResult.entries, 3)
 

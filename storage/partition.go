@@ -59,8 +59,9 @@ type PartitionRef struct {
 
 func (this PartitionRef) ToSegmentRef(segment SegmentId) SegmentRef {
 	return SegmentRef{
-		PartitionRef: this,
-		Segment:      segment,
+		Topic:     this.Topic,
+		Partition: this.Partition,
+		Segment:   segment,
 	}
 }
 

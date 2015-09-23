@@ -28,7 +28,7 @@ const (
 	INDEX_HASH    = 13
 	INDEX_CONTENT = 21
 
-	HEADER_LENGTH = 22
+	HEADER_LENGTH = 21
 )
 
 func (this RawMessage) UpdateId(id MessageId) {
@@ -126,10 +126,12 @@ func NewMessageSetFromBuffer(buffer []byte) *MessageSet {
 			panic(fmt.Errorf("unexpected byte value: expected start value %v at %v, but got %v", START_VALUE, position+INDEX_START, buffer[position+INDEX_START]))
 		}
 
+		header := ReadHeader(buffer[position:])
+
 		entry := SetEntry{
-			Id:     MessageId(byteOrder.Uint64(buffer[position+INDEX_ID:])),
-			Length: int(byteOrder.Uint32(buffer[position+INDEX_LENGTH:])),
-			Hash:   byteOrder.Uint64(buffer[position+INDEX_HASH:]),
+			Id:     header.MessageId,
+			Length: int(header.ContentLength),
+			Hash:   header.ContentHash,
 			Offset: int(position),
 		}
 
@@ -141,8 +143,7 @@ func NewMessageSetFromBuffer(buffer []byte) *MessageSet {
 		}
 
 		entries = append(entries, entry)
-
-		position = valueEnd + 1
+		position += int(HEADER_LENGTH + header.ContentLength)
 
 		logger.Withs(tidy.Fields{
 			"entry":    tidy.Stringify(entry),
@@ -166,7 +167,6 @@ func NewMessageSet(messages []RawMessage) *MessageSet {
 	}
 
 	buffer := make([]byte, size)
-
 	for _, message := range messages {
 		copy(buffer[offset:], message)
 		offset += message.Len()
