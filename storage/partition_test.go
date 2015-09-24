@@ -54,6 +54,7 @@ func TestOpenPartition(t *testing.T) {
 	}
 
 	assert.Equal(t, partition.segments.Last().ref, partitionRef.ToSegmentRef(801))
+	assert.Equal(t, partition.lastMessageId.String(), MessageId(1000).String())
 }
 
 func TestAppendRollingSegments(t *testing.T) {

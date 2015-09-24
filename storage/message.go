@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/OneOfOne/xxhash/native"
-	"github.com/pjvds/tidy"
 )
 
 // Message format:
@@ -62,6 +61,11 @@ func (this MessageId) NextN(n int) MessageId {
 	return this + MessageId(n)
 }
 
+func (this MessageId) String() string {
+	value := uint64(this)
+	return fmt.Sprint(value)
+}
+
 type MessageHash int64
 
 var EmptyMessageSet = &MessageSet{
@@ -114,7 +118,6 @@ type SetEntry struct {
 }
 
 func NewMessageSetFromBuffer(buffer []byte) *MessageSet {
-	logger.With("buffer", tidy.Stringify(buffer)).Debug("creating message set from buffer")
 	position := 0
 
 	// TODO: inspect capacity during iteration and grow smarter.
@@ -144,12 +147,6 @@ func NewMessageSetFromBuffer(buffer []byte) *MessageSet {
 
 		entries = append(entries, entry)
 		position += int(HEADER_LENGTH + header.ContentLength)
-
-		logger.Withs(tidy.Fields{
-			"entry":    tidy.Stringify(entry),
-			"position": entry.Offset,
-			"next_at":  position,
-		}).Debug("entry read")
 	}
 
 	return &MessageSet{

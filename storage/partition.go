@@ -164,7 +164,7 @@ func OpenPartition(ref PartitionRef, config PartitionConfig, directory string) (
 	for index, filename := range segmentFiles {
 		segmentId := ReadSegmentIdFromFilename(filename)
 
-		file, err := os.Open(segmentFiles[len(segmentFiles)-1])
+		file, err := os.OpenFile(filename, os.O_RDWR, 0777)
 		if err != nil {
 			return nil, err
 		}
@@ -228,6 +228,23 @@ func ReadSegmentIdFromFilename(filename string) SegmentId {
 	}
 
 	return SegmentId(n)
+}
+
+func OpenOrCreatePartition(ref PartitionRef, config PartitionConfig, directory string) (*Partition, error) {
+	files, err := ioutil.ReadDir(directory)
+
+	if err != nil {
+		if os.IsNotExist(err) {
+			return CreatePartition(ref, config, directory)
+		}
+		return nil, err
+	}
+
+	if len(files) == 0 {
+		return CreatePartition(ref, config, directory)
+	}
+
+	return OpenPartition(ref, config, directory)
 }
 
 func CreatePartition(ref PartitionRef, config PartitionConfig, directory string) (*Partition, error) {
@@ -301,9 +318,14 @@ func (this *Partition) Append(messages *MessageSet) error {
 		}
 	}
 
+	this.logger.With("segment", segment.ref).Debug("writting to segment")
+
 	if err := segment.Append(messages); err != nil {
+		this.logger.With("segment", segment.ref).WithError(err).Warn("write to segment failed")
+
 		return err
 	}
+	this.logger.With("segment", segment.ref).Debug("write to segment success")
 
 	this.lastMessageId = this.lastMessageId.NextN(messages.MessageCount())
 

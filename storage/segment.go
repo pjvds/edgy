@@ -54,11 +54,48 @@ type checkResult struct {
 	LastMessageContentLength int32
 }
 
+func copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err error) {
+	if buf == nil {
+		buf = make([]byte, 32*1024)
+	}
+copy:
+	for {
+		nr, er := src.Read(buf)
+		if nr > 0 {
+			tw := buf[0:nr]
+			for len(tw) > 0 {
+				nw, ew := dst.Write(tw)
+				if nw > 0 {
+					written += int64(nw)
+				}
+				if ew != nil {
+					err = ew
+					break copy
+				}
+				if nw > nr {
+					panic("written too much")
+				}
+
+				tw = tw[nw:]
+			}
+		}
+		if er == io.EOF {
+			break
+		}
+		if er != nil {
+			err = er
+			break
+		}
+	}
+	return written, err
+}
+
 func checkSegment(reader io.Reader) (checkResult, error) {
 	//reader := bufio.NewReader(r)
 	hasher := xxhash.New64()
 
 	headerBuf := make([]byte, HEADER_LENGTH)
+	contentBuf := make([]byte, 5*1000*1000)
 	position := int64(0)
 
 	result := checkResult{
@@ -78,6 +115,10 @@ func checkSegment(reader io.Reader) (checkResult, error) {
 		}
 
 		header := ReadHeader(headerBuf)
+
+		if header.MessageId == MessageId(809) {
+			_ = "breakpoint"
+		}
 
 		if header.Magic != START_VALUE {
 			if header.Magic != 0x00 {
@@ -104,8 +145,13 @@ func checkSegment(reader io.Reader) (checkResult, error) {
 			}).Info("message id sequence mismatch")
 		}
 
-		hasher.Reset()
-		read, err := io.CopyN(hasher, reader, int64(header.ContentLength))
+		//hasher.Reset()
+		//read, err := copyBuffer(hasher, io.LimitReader(reader, int64(header.ContentLength)), nil)
+		if len(contentBuf) < int(header.ContentLength) {
+			contentBuf = make([]byte, header.ContentLength)
+		}
+
+		read, err := reader.Read(contentBuf[:header.ContentLength])
 
 		if err != nil {
 			if err == io.EOF {
@@ -126,16 +172,16 @@ func checkSegment(reader io.Reader) (checkResult, error) {
 			return result, err
 		}
 
-		if read != int64(header.ContentLength) {
+		if read != int(header.ContentLength) {
 			logger.Withs(tidy.Fields{
 				"content_lenght": header.ContentLength,
 				"header":         tidy.Stringify(header),
 				"read":           read,
-			}).Debug("read count mismatch while hashing content")
+			}).Error("read count mismatch while hashing content")
 			break
 		}
 
-		if hasher.Sum64() != header.ContentHash {
+		if xxhash.Checksum64(contentBuf[:header.ContentLength]) != header.ContentHash {
 			logger.Withs(tidy.Fields{
 				"actual_hash":   hasher.Sum64(),
 				"header":        tidy.Stringify(header),
@@ -152,6 +198,8 @@ func checkSegment(reader io.Reader) (checkResult, error) {
 		// advance position to potential starting point of the next message
 		position += int64(HEADER_LENGTH + header.ContentLength)
 	}
+
+	logger.With("result", tidy.Stringify(result)).Debug("check segment finished")
 
 	return result, nil
 }
@@ -254,14 +302,12 @@ func (this *Segment) Append(messages *MessageSet) error {
 	// Because an error is returned when this is not equal to the number of bytes we
 	// provided.
 	if written, err := this.file.WriteAt(messages.buffer, int64(this.position)); err != nil {
-		if this.logger.IsError() {
-			this.logger.WithError(err).Withs(tidy.Fields{
-				"file":       this.file.Name(),
-				"position":   this.position,
-				"written":    written,
-				"space_left": spaceLeft,
-			}).Error("write error")
-		}
+		this.logger.WithError(err).Withs(tidy.Fields{
+			"file":       this.file.Name(),
+			"position":   this.position,
+			"written":    written,
+			"space_left": spaceLeft,
+		}).Error("write error")
 
 		return err
 	} else {
