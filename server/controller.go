@@ -28,6 +28,11 @@ func NewController(directory string) *Controller {
 }
 
 func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) (*api.AppendReply, error) {
+	this.logger.Withs(tidy.Fields{
+		"topic":     request.Topic,
+		"partition": request.Partition,
+	}).Debug("incoming append request")
+
 	ref := storage.PartitionRef{
 		Topic:     request.Topic,
 		Partition: storage.PartitionId(request.Partition),
@@ -38,6 +43,8 @@ func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) 
 		this.logger.With("partition", ref.String()).WithError(err).Error("failed to get or create storage for partition")
 		return nil, err
 	}
+
+	this.logger.With("partition", ref).Debug("dispatching request")
 
 	return partition.HandleAppendRequest(request)
 }

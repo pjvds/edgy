@@ -12,7 +12,8 @@ import (
 
 type AppendRequest struct {
 	*api.AppendRequest
-	Result chan error
+	MessageSet *storage.MessageSet
+	Result     chan error
 }
 
 type PartitionController struct {
@@ -49,7 +50,7 @@ func (this *PartitionController) initialize() {
 	delay := backoff.Exp(1*time.Millisecond, 15*time.Second)
 
 	for {
-		storage, err := storage.CreatePartition(this.ref, storage.DefaultConfig, directory)
+		storage, err := storage.OpenOrCreatePartition(this.ref, storage.DefaultConfig, directory)
 
 		if err != nil {
 			this.logger.WithError(err).Withs(tidy.Fields{
@@ -70,13 +71,26 @@ func (this *PartitionController) initialize() {
 }
 
 func (this *PartitionController) HandleAppendRequest(request *api.AppendRequest) (*api.AppendReply, error) {
+	// TODO: use method that validates the buffer
+	messageSet := storage.NewMessageSetFromBuffer(request.Messages)
+
+	this.logger.Withs(tidy.Fields{
+		"topic":         request.Topic,
+		"partition":     request.Partition,
+		"message_count": messageSet.MessageCount(),
+	}).Debug("sending append request")
+
 	result := make(chan error, 1)
 	this.appendRequests <- &AppendRequest{
 		AppendRequest: request,
+		MessageSet:    messageSet,
 		Result:        result,
 	}
+	this.logger.Debug("append request send, waiting for result")
 
 	err := <-result
+
+	this.logger.WithError(err).Debug("result received")
 	return &api.AppendReply{
 		Ok: err == nil,
 	}, nil
@@ -87,7 +101,6 @@ func (this *PartitionController) appendLoop() {
 	this.logger.Debug("append loop started")
 
 	for request := range this.appendRequests {
-		messageSet := storage.NewMessageSetFromBuffer(request.Messages)
-		request.Result <- this.storage.Append(messageSet)
+		request.Result <- this.storage.Append(request.MessageSet)
 	}
 }
