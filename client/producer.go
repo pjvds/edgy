@@ -28,7 +28,7 @@ type Producer struct {
 }
 
 func NewProducer(address string) (*Producer, error) {
-	connection, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithTimeout(time.Second))
+	connection, err := grpc.Dial(address, grpc.WithInsecure())
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +98,9 @@ func (this *Producer) run() {
 	buffer := new(bytes.Buffer)
 
 	for {
+		callbacks = callbacks[0:0]
+		buffer.Reset()
+
 		// receive first request
 		request := <-this.requests
 		topic = request.topic
