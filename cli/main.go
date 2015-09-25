@@ -3,19 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
+	"github.com/codegangsta/cli"
 	"github.com/pjvds/edgy/client"
 	"github.com/pjvds/tidy"
-)
-
-var (
-	host       = flag.String("host", "localhost:5050", "the edgy host address")
-	topic      = flag.String("topic", "benchmark", "the topic to send to")
-	payload    = flag.String("payload", "foobar", "the payload to send")
-	partitions = flag.Int("partitions", 8, "the number of partitions")
-	num        = flag.Int("num", 1*1000*1000, "")
 )
 
 type ReportingCounter struct {
@@ -42,38 +36,77 @@ func main() {
 	tidy.Configure().LogFromLevel(tidy.ERROR).To(tidy.Console).BuildDefault()
 	flag.Parse()
 
-	producer, err := client.NewProducer(*host)
+	app := cli.NewApp()
+	app.Name = "edgy command line interface"
+	app.Commands = []cli.Command{
+		cli.Command{
+			Name: "writebench",
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "host",
+					Value: "localhost:5050",
+				},
+				cli.StringFlag{
+					Name:  "topic",
+					Value: "writebench",
+				},
+				cli.IntFlag{
+					Name:  "partitions",
+					Value: 1,
+				},
+				cli.IntFlag{
+					Name:  "num",
+					Value: 1e6,
+				},
+				cli.StringFlag{
+					Name:  "payload",
+					Value: "foobar",
+				},
+			},
+			Action: func(ctx *cli.Context) {
+				host := ctx.String("host")
+				num := ctx.Int("num")
+				topic := ctx.String("topic")
+				partitions := ctx.Int("partitions")
+				payload := []byte(ctx.String("payload"))
 
-	if err != nil {
-		println("failed to create producer: " + err.Error())
-		return
+				producer, err := client.NewProducer(host)
+				if err != nil {
+					println("failed to create producer: " + err.Error())
+					return
+				}
+
+				counter := new(ReportingCounter)
+				work := sync.WaitGroup{}
+				work.Add(num)
+
+				started := time.Now()
+
+				for n := 0; n < num; n++ {
+					partition := int32(n % partitions)
+					result := producer.Append(topic, partition, payload)
+
+					go func(result client.AppendResult) {
+						result.Wait()
+						work.Done()
+					}(result)
+
+					counter.Inc()
+				}
+
+				elapsed := time.Now().Sub(started)
+				msgsPerSecond := float64(num) / elapsed.Seconds()
+				totalMb := float64(num*len(payload)) / (1e6)
+
+				fmt.Printf("run time: %v\n", elapsed)
+				fmt.Printf("total msgs: %v\n", num)
+				fmt.Printf("msgs/s: %v\n", msgsPerSecond)
+				fmt.Printf("total transfered: %v\n", totalMb)
+				fmt.Printf("MB/s: %v\n", totalMb/elapsed.Seconds())
+				fmt.Printf("done!")
+			},
+		},
 	}
 
-	counter := new(ReportingCounter)
-	work := sync.WaitGroup{}
-	work.Add(*num)
-
-	started := time.Now()
-
-	for n := 0; n < *num; n++ {
-		result := producer.Append(*topic, int32(n%(*partitions)), []byte(*payload))
-
-		go func(result client.AppendResult) {
-			result.Wait()
-			work.Done()
-		}(result)
-
-		counter.Inc()
-	}
-
-	elapsed := time.Now().Sub(started)
-	msgsPerSecond := float64(*num) / elapsed.Seconds()
-	totalMb := float64(*num*len(*payload)) / (1e6)
-
-	fmt.Printf("run time: %v\n", elapsed)
-	fmt.Printf("total msgs: %v\n", *num)
-	fmt.Printf("msgs/s: %v\n", msgsPerSecond)
-	fmt.Printf("total transfered: %v\n", totalMb)
-	fmt.Printf("MB/s: %v\n", totalMb/elapsed.Seconds())
-	fmt.Printf("done!")
+	app.Run(os.Args)
 }
