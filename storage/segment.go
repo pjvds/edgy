@@ -54,42 +54,6 @@ type checkResult struct {
 	LastMessageContentLength int32
 }
 
-func copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err error) {
-	if buf == nil {
-		buf = make([]byte, 32*1024)
-	}
-copy:
-	for {
-		nr, er := src.Read(buf)
-		if nr > 0 {
-			tw := buf[0:nr]
-			for len(tw) > 0 {
-				nw, ew := dst.Write(tw)
-				if nw > 0 {
-					written += int64(nw)
-				}
-				if ew != nil {
-					err = ew
-					break copy
-				}
-				if nw > nr {
-					panic("written too much")
-				}
-
-				tw = tw[nw:]
-			}
-		}
-		if er == io.EOF {
-			break
-		}
-		if er != nil {
-			err = er
-			break
-		}
-	}
-	return written, err
-}
-
 func checkSegment(reader io.Reader) (checkResult, error) {
 	//reader := bufio.NewReader(r)
 	hasher := xxhash.New64()
