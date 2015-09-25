@@ -96,7 +96,7 @@ type PartitionConfig struct {
 }
 
 var DefaultConfig = PartitionConfig{
-	SegmentSize: 1000 * 1000,
+	SegmentSize: 1000 * 1000 * 1000,
 }
 
 func createOrEnsureDirectoryIsEmpty(directory string) error {
@@ -328,6 +328,7 @@ func (this *Partition) Append(messages *MessageSet) error {
 	this.logger.With("segment", segment.ref).Debug("write to segment success")
 
 	this.lastMessageId = this.lastMessageId.NextN(messages.MessageCount())
+	this.logger.With("last_message_id", this.lastMessageId).Info("append success")
 
 	return nil
 }

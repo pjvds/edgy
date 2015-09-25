@@ -66,7 +66,7 @@ func (this *Controller) getPartition(ref storage.PartitionRef) (*PartitionContro
 		this.partitionsLock.Lock()
 		defer this.partitionsLock.Unlock()
 
-		// check again, since there another one can have
+		// check again, since it might be that another one routine
 		// created our partition in the time we where locked
 		if partition, ok = this.partitions[ref]; ok {
 			return partition, nil
