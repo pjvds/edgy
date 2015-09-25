@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"errors"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -49,8 +50,6 @@ func NewProducer(address string) (*Producer, error) {
 			QueueSize: 1000,
 		},
 	}
-	go producer.run()
-
 	return producer, nil
 }
 
@@ -63,26 +62,15 @@ func (this AppendResult) Wait() error {
 }
 
 type appendRequest struct {
-	topic     string
-	partition int32
-
-	message []byte
-
-	result chan error
+	Message []byte
+	result  chan error
 }
 
 func (this *Producer) Append(topic string, partition int32, message []byte) AppendResult {
-	this.logger.Withs(tidy.Fields{
-		"topic":     topic,
-		"partition": partition,
-	}).Debug("handling append request")
-
 	result := make(chan error, 1)
-	this.requests <- appendRequest{
-		topic:     topic,
-		partition: partition,
-		message:   message,
-		result:    result,
+	this.getSender(topic, partition) <- appendRequest{
+		Message: message,
+		result:  result,
 	}
 
 	return AppendResult{
@@ -90,10 +78,35 @@ func (this *Producer) Append(topic string, partition int32, message []byte) Appe
 	}
 }
 
-func (this *Producer) run() {
-	var topic string
-	var partition int32
+var senders = make(map[string]map[int32]chan appendRequest)
+var sendersLock sync.Mutex
+var counter int64
+var lastPrint = time.Now()
 
+func (this *Producer) getSender(topic string, partition int32) chan appendRequest {
+	sendersLock.Lock()
+	defer sendersLock.Unlock()
+
+	topicSenders, ok := senders[topic]
+
+	if !ok {
+		topicSenders = make(map[int32]chan appendRequest)
+		senders[topic] = topicSenders
+	}
+
+	partitionSender, ok := topicSenders[partition]
+
+	if !ok {
+		partitionSender = make(chan appendRequest, 5000)
+		topicSenders[partition] = partitionSender
+
+		go this.senderLoop(topic, partition, partitionSender)
+	}
+
+	return partitionSender
+}
+
+func (this *Producer) senderLoop(topic string, partition int32, requests chan appendRequest) {
 	callbacks := make([]chan error, 0, this.config.QueueSize)
 	buffer := new(bytes.Buffer)
 
@@ -102,17 +115,10 @@ func (this *Producer) run() {
 		buffer.Reset()
 
 		// receive first request
-		request := <-this.requests
-		topic = request.topic
-		partition = request.partition
-
-		this.logger.Withs(tidy.Fields{
-			"topic":     topic,
-			"partition": partition,
-		}).Debug("received first request")
+		request := <-requests
 
 		callbacks = append(callbacks, request.result)
-		buffer.Write(storage.NewMessage(0, request.message))
+		buffer.Write(storage.NewMessage(0, request.Message))
 
 		// receive next requests until full or timed out
 		timeout := time.After(this.config.QueueTime)
@@ -120,9 +126,9 @@ func (this *Producer) run() {
 	enqueue:
 		for index := 1; index < this.config.QueueSize; index++ {
 			select {
-			case request = <-this.requests:
+			case request = <-requests:
 				callbacks = append(callbacks, request.result)
-				buffer.Write(storage.NewMessage(0, request.message))
+				buffer.Write(storage.NewMessage(0, request.Message))
 
 			case <-timeout:
 				this.logger.With("timeout", this.config.QueueTime).Debug("queue time expired")
