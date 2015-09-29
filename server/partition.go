@@ -107,19 +107,19 @@ func (this *PartitionController) HandleReadRequest(request *api.ReadRequest) (*a
 	}).Debug("handling read request")
 
 	result, err := this.storage.ReadFrom(storage.Offset{
-		MessageId:    storage.MessageId(request.Offset.MessageId),
-		SegmentId:    storage.SegmentId(request.Offset.SegmentId),
-		LastPosition: request.Offset.EndPosition,
+		MessageId: storage.MessageId(request.Offset.MessageId),
+		SegmentId: storage.SegmentId(request.Offset.SegmentId),
+		Position:  request.Offset.EndPosition,
 	}, 5*1e6)
 	if err != nil {
 		return nil, err
 	}
 
 	return &api.ReadReply{
-		Messages: result.Messages.Buffer(),
+		Messages: result.Messages,
 		Offset: &api.OffsetData{
 			MessageId:   uint64(result.Next.MessageId),
-			EndPosition: result.Next.LastPosition,
+			EndPosition: result.Next.Position,
 			SegmentId:   uint64(result.Next.SegmentId),
 		},
 	}, nil

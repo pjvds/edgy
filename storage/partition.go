@@ -345,19 +345,23 @@ func (this *Partition) Append(messages *MessageSet) error {
 }
 
 type ReadResult struct {
-	Messages *MessageSet
+	Messages []byte
 	Next     Offset
 }
 
 func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (ReadResult, error) {
-	result := ReadResult{
-		Messages: EmptyMessageSet,
-		Next:     offset,
+
+	next := offset
+	if next.IsEmpty() {
+		next.MessageId = MessageId(1)
+		next.SegmentId = SegmentId(1)
+		next.Position = 0
 	}
+	this.logger.With("offset", offset).With("next", next).Info("read request")
 
 	if this.closed {
 		this.logger.WithError(ErrClosed).Debug("ReadFrom called while closed")
-		return result, ErrClosed
+		return ReadResult{Next: next}, ErrClosed
 	}
 
 	this.logger.Withs(tidy.Fields{
@@ -368,49 +372,67 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (Rea
 
 	buffer := make([]byte, eagerFetchUntilMaxBytes)
 
-	// TODO: offset should already be a int64
-	// TODO: handle offset without only message id
-	segmentId := offset.SegmentId
-	position := offset.LastPosition
-
-	if offset.IsEmpty() {
-		segmentId = SegmentId(1)
-		position = 0
-	}
-
 	for {
-		segment, ok := this.segments.Get(segmentId)
+		segment, ok := this.segments.Get(next.SegmentId)
 		if !ok {
-			return result, errors.New("segment not found")
+			err := errors.New("segment not found")
+
+			this.logger.Withs(tidy.Fields{
+				"offset": offset,
+			}).WithError(err).Error("ReadFrom failed")
+
+			return ReadResult{}, err
 		}
 
-		read, err := segment.ReadAt(buffer, position)
+		read, err := segment.ReadAt(buffer, next.Position)
 
 		if err != nil && err != io.EOF {
 			logger.WithError(err).Withs(tidy.Fields{
+				"segment":       segment.ref,
 				"buffer_length": len(buffer),
 				"bytes_read":    read,
-			}).Warn("failed to read from partition file")
+			}).Error("failed to read from segment file")
 
-			return result, err
+			return ReadResult{}, err
 		}
 
-		if err == io.EOF {
-			// we are end of file, try next segment.
-			segmentId = SegmentId(offset.MessageId.Next())
-			position = 0
-			continue
+		if err == io.EOF && read == 0 {
+			logger.WithError(err).Withs(tidy.Fields{
+				"segment":       segment.ref,
+				"buffer_length": len(buffer),
+				"bytes_read":    read,
+				"position":      next.Position,
+			}).Error("unexpected EOF")
+
+			return ReadResult{}, err
 		}
 
 		if buffer[0] == END_OF_SEGMENT {
-			result.Messages = EmptyMessageSet
-			result.Next = Offset{
-				MessageId:    offset.MessageId,
-				SegmentId:    SegmentId(offset.MessageId.Next()),
-				LastPosition: 0,
+			next = Offset{
+				MessageId: offset.MessageId,
+				SegmentId: SegmentId(offset.MessageId),
+				Position:  0,
+			}
+			continue
+		}
+
+		if buffer[0] != START_VALUE {
+			if buffer[0] == 0x00 {
+				return ReadResult{
+					Messages: make([]byte, 0),
+					Next:     next,
+				}, nil
 			}
 
-			return result, nil
+			err := errors.New("unexpected start value")
+
+			logger.WithError(err).Withs(tidy.Fields{
+				"segment":    segment.ref,
+				"offset":     offset,
+				"first_byte": buffer[0],
+			}).Error("read failure")
+
+			return ReadResult{}, err
 		}
 
 		// we are having something in the buffer
@@ -425,18 +447,56 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (Rea
 		// 	return result, errors.New("no message found at current position")
 		// }
 
-		messages := NewMessageSetFromBuffer(buffer[0:read])
-		last, ok := messages.LastEntry()
+		position := 0
 
-		if ok {
-			result.Messages = messages
-			result.Next = Offset{
-				MessageId:    last.Id,
-				SegmentId:    segmentId,
-				LastPosition: position + int64(last.Offset+last.Length+HEADER_LENGTH),
+		for {
+			if position > read-HEADER_LENGTH {
+				break
 			}
+
+			header := ReadHeader(buffer[position:])
+
+			if header.Magic != START_VALUE {
+				// we reached a point where there is no message header
+				// if header.Magic == END_OF_SEGMENT {
+				// 	result.Next.SegmentId = SegmentId(result.Next.MessageId)
+				// 	result.Next.Position = 0
+				// }
+				break
+			}
+
+			if header.MessageId != next.MessageId {
+				this.logger.Withs(tidy.Fields{
+					"offset":              offset,
+					"next":                next,
+					"expected_message_id": offset.MessageId,
+					"actual_message_id":   header.MessageId,
+					"position":            position,
+					"segment":             segment.ref,
+				}).Error("unexpected message id")
+
+				return ReadResult{}, errors.New("data error")
+			}
+
+			if header.ContentLength > int32(read-position-HEADER_LENGTH) {
+				// message content is not, or partial in buffer
+				break
+			}
+
+			next.MessageId = header.MessageId.Next()
+			next.Position += int64(HEADER_LENGTH + header.ContentLength)
+
+			position += int(HEADER_LENGTH + header.ContentLength)
 		}
 
-		return result, nil
+		this.logger.Withs(tidy.Fields{
+			"offset": offset,
+			"next":   next,
+		}).Info("read success")
+
+		return ReadResult{
+			Messages: buffer[0:position],
+			Next:     next,
+		}, nil
 	}
 }
