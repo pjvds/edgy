@@ -28,7 +28,7 @@ type Producer struct {
 	config ProducerConfig
 }
 
-func NewProducer(address string) (*Producer, error) {
+func NewProducer(address string, config ProducerConfig) (*Producer, error) {
 	connection, err := grpc.Dial(address, grpc.WithInsecure())
 	if err != nil {
 		return nil, err
@@ -45,10 +45,7 @@ func NewProducer(address string) (*Producer, error) {
 		logger:   tidy.GetLogger(),
 		client:   api.NewEdgyClient(connection),
 		requests: make(chan appendRequest),
-		config: ProducerConfig{
-			QueueTime: 250 * time.Millisecond,
-			QueueSize: 1000,
-		},
+		config:   config,
 	}
 	return producer, nil
 }
