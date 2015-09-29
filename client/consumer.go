@@ -1,7 +1,6 @@
 package client
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/pjvds/backoff"
@@ -68,11 +67,9 @@ func (this *Consumer) doReading() {
 	defer close(this.dispatch)
 
 	for {
-		fmt.Printf("READING REQUEST FROM: %v@%v/%v\n", offset.MessageId, offset.SegmentId, offset.EndPosition)
+		//fmt.Printf("READING REQUEST FROM: %v@%v/%v\n", offset.MessageId, offset.SegmentId, offset.EndPosition)
 
 		reply, err := this.client.Read(context.Background(), &api.ReadRequest{Topic: this.topic, Partition: 0, Offset: offset})
-
-		this.logger.With("offset", tidy.Stringify(offset)).Info("REPLY")
 
 		if err != nil {
 			this.logger.WithError(err).Warn("read request failed")
