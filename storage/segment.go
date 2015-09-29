@@ -210,7 +210,7 @@ func CreateSegment(ref SegmentRef, filename string, size int64) (*Segment, error
 // to this segment; otherwise, false.
 func (this *Segment) SpaceLeftFor(messages *MessageSet) bool {
 	spaceLeft := this.size - this.position
-	required := messages.DataLen64()
+	required := messages.DataLen64() + 1 // INCLUDE last byte in required
 	ok := spaceLeft >= required
 
 	if !ok && this.logger.IsDebug() {
@@ -270,16 +270,30 @@ func (this *Segment) Append(messages *MessageSet) error {
 	}
 }
 
+func (this *Segment) Finalize() error {
+	if _, err := this.file.WriteAt([]byte{
+		END_OF_SEGMENT,
+	}, this.position); err != nil {
+		return err
+	}
+
+	if err := this.file.Sync(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (this *Segment) ReadAt(buffer []byte, offset int64) (int, error) {
-	available := this.position - offset
+	// available := this.position - offset
+	//
+	// if available > int64(len(buffer)) {
+	return this.file.ReadAt(buffer, offset)
+	// }
+	//
+	// if available <= 0 {
+	// 	return 0, io.EOF
+	// }
 
-	if available > int64(len(buffer)) {
-		return this.file.ReadAt(buffer, offset)
-	}
-
-	if available <= 0 {
-		return 0, io.EOF
-	}
-
-	return this.file.ReadAt(buffer[0:available], offset)
+	//return this.file.ReadAt(buffer[0:available], offset)
 }

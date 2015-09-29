@@ -28,6 +28,8 @@ const (
 	INDEX_CONTENT = 21
 
 	HEADER_LENGTH = 21
+
+	END_OF_SEGMENT = byte('>')
 )
 
 func (this RawMessage) UpdateId(id MessageId) {
@@ -110,6 +112,31 @@ type MessageSet struct {
 	entries []SetEntry
 }
 
+func (this *MessageSet) Messages() []RawMessage {
+	result := make([]RawMessage, len(this.entries))
+
+	for index, entry := range this.entries {
+		result[index] = RawMessage(this.buffer[entry.Offset : entry.Offset+entry.Length+HEADER_LENGTH])
+	}
+
+	return result
+}
+func (this *MessageSet) Buffer() []byte {
+	if last, ok := this.LastEntry(); ok {
+		return this.buffer[0 : last.Offset+last.Length]
+	}
+
+	return make([]byte, 0)
+}
+
+func (this *MessageSet) LastEntry() (SetEntry, bool) {
+	if len(this.entries) == 0 {
+		return SetEntry{}, false
+	}
+
+	return this.entries[len(this.entries)-1], true
+}
+
 type SetEntry struct {
 	Id     MessageId
 	Offset int
@@ -124,12 +151,15 @@ func NewMessageSetFromBuffer(buffer []byte) *MessageSet {
 	entries := make([]SetEntry, 0, 5)
 
 	for position+HEADER_LENGTH < len(buffer) {
-		if buffer[position+INDEX_START] != START_VALUE {
-			// TODO: return error
-			panic(fmt.Errorf("unexpected byte value: expected start value %v at %v, but got %v", START_VALUE, position+INDEX_START, buffer[position+INDEX_START]))
-		}
-
 		header := ReadHeader(buffer[position:])
+
+		if header.Magic != START_VALUE {
+			if header.Magic != 0 && header.Magic != END_OF_SEGMENT {
+				// TODO: return error
+				panic(fmt.Errorf("unexpected byte value: expected start value %v at %v, but got %v", START_VALUE, position+INDEX_START, buffer[position+INDEX_START]))
+			}
+			break
+		}
 
 		entry := SetEntry{
 			Id:     header.MessageId,

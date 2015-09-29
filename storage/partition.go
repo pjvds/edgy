@@ -271,6 +271,13 @@ func (this *Partition) Close() {
 }
 
 func (this *Partition) rollToNextSegment() (*Segment, error) {
+	if current := this.segments.Last(); current != nil {
+		// TODO: make finalize safer
+		if err := current.Finalize(); err != nil {
+			panic(err)
+		}
+	}
+
 	id := SegmentId(this.lastMessageId.Next())
 	ref := this.ref.ToSegmentRef(id)
 
@@ -310,7 +317,6 @@ func (this *Partition) Append(messages *MessageSet) error {
 		} else {
 			segment = rolledTo
 		}
-
 	}
 
 	if !segment.SpaceLeftFor(messages) {
@@ -338,10 +344,20 @@ func (this *Partition) Append(messages *MessageSet) error {
 	return nil
 }
 
-func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (*MessageSet, error) {
+type ReadResult struct {
+	Messages *MessageSet
+	Next     Offset
+}
+
+func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (ReadResult, error) {
+	result := ReadResult{
+		Messages: EmptyMessageSet,
+		Next:     offset,
+	}
+
 	if this.closed {
 		this.logger.WithError(ErrClosed).Debug("ReadFrom called while closed")
-		return nil, ErrClosed
+		return result, ErrClosed
 	}
 
 	this.logger.Withs(tidy.Fields{
@@ -351,12 +367,11 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (*Me
 	// TODO: return empty set when offset is beyond lastMessageId of the writer.
 
 	buffer := make([]byte, eagerFetchUntilMaxBytes)
-	// TODO: defer this.buffers.Put(buffer)
 
 	// TODO: offset should already be a int64
 	// TODO: handle offset without only message id
 	segmentId := offset.SegmentId
-	position := offset.LastPosition + 1
+	position := offset.LastPosition
 
 	if offset.IsEmpty() {
 		segmentId = SegmentId(1)
@@ -366,7 +381,7 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (*Me
 	for {
 		segment, ok := this.segments.Get(segmentId)
 		if !ok {
-			return nil, errors.New("segment not found")
+			return result, errors.New("segment not found")
 		}
 
 		read, err := segment.ReadAt(buffer, position)
@@ -377,7 +392,7 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (*Me
 				"bytes_read":    read,
 			}).Warn("failed to read from partition file")
 
-			return nil, err
+			return result, err
 		}
 
 		if err == io.EOF {
@@ -387,18 +402,41 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (*Me
 			continue
 		}
 
-		// we are having something in the buffer
-		if buffer[0] != START_VALUE {
-			this.logger.Withs(tidy.Fields{
-				"segment_id": segmentId,
-				"position":   position,
-				"offset":     tidy.Stringify(offset),
-				"byte_value": buffer[0],
-			}).Error("no message found at current position")
+		if buffer[0] == END_OF_SEGMENT {
+			result.Messages = EmptyMessageSet
+			result.Next = Offset{
+				MessageId:    offset.MessageId,
+				SegmentId:    SegmentId(offset.MessageId.Next()),
+				LastPosition: 0,
+			}
 
-			return nil, errors.New("no message found at current position")
+			return result, nil
 		}
 
-		return NewMessageSetFromBuffer(buffer[0:read]), nil
+		// we are having something in the buffer
+		// if buffer[0] != START_VALUE {
+		// 	this.logger.Withs(tidy.Fields{
+		// 		"segment_id": segmentId,
+		// 		"position":   position,
+		// 		"offset":     tidy.Stringify(offset),
+		// 		"byte_value": buffer[0],
+		// 	}).Error("no message found at current position")
+		//
+		// 	return result, errors.New("no message found at current position")
+		// }
+
+		messages := NewMessageSetFromBuffer(buffer[0:read])
+		last, ok := messages.LastEntry()
+
+		if ok {
+			result.Messages = messages
+			result.Next = Offset{
+				MessageId:    last.Id,
+				SegmentId:    segmentId,
+				LastPosition: position + int64(last.Offset+last.Length+HEADER_LENGTH),
+			}
+		}
+
+		return result, nil
 	}
 }
