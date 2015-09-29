@@ -81,23 +81,9 @@ type Offset struct {
 	LastPosition int64
 }
 
-type Header struct {
-	Magic         byte
-	MessageId     MessageId
-	ContentLength int32
-	ContentHash   uint64
-}
-
-func ReadHeader(buffer []byte) Header {
-	if len(buffer) < HEADER_LENGTH {
-		panic("buffer size too small")
-	}
-
-	return Header{
-		Magic:         buffer[INDEX_START],
-		MessageId:     MessageId(byteOrder.Uint64(buffer[INDEX_ID:])),
-		ContentLength: int32(byteOrder.Uint32(buffer[INDEX_LENGTH:])),
-		ContentHash:   byteOrder.Uint64(buffer[INDEX_HASH:]),
+func (this Offset) String() string {
+	if this.IsEmpty() {
+		return "<empty>"
 	}
 }
 
