@@ -76,21 +76,22 @@ var EmptyMessageSet = &MessageSet{
 }
 
 type Offset struct {
-	MessageId    MessageId
-	SegmentId    SegmentId
-	LastPosition int64
+	MessageId MessageId
+	SegmentId SegmentId
+	Position  int64
 }
 
 func (this Offset) String() string {
 	if this.IsEmpty() {
 		return "<empty>"
 	}
+	return fmt.Sprintf("%v@%v/%v", this.MessageId, this.SegmentId, this.Position)
 }
 
 func (this Offset) IsEmpty() bool {
 	return this.MessageId == MessageId(0) &&
 		this.SegmentId == SegmentId(0) &&
-		this.LastPosition == 0
+		this.Position == 0
 }
 
 type MessageSet struct {
