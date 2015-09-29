@@ -117,10 +117,11 @@ func TestAppendRoundtrip(t *testing.T) {
 	assert.Nil(t, err)
 
 	readResult, err := partition.ReadFrom(Offset{}, 1000)
+	messages := NewMessageSetFromBuffer(readResult.Messages)
 	assert.Nil(t, err)
-	assert.Len(t, readResult.entries, 3)
+	assert.Len(t, messages.entries, 3)
 
-	assert.Equal(t, MessageId(1), readResult.entries[0].Id)
-	assert.Equal(t, MessageId(2), readResult.entries[1].Id)
-	assert.Equal(t, MessageId(3), readResult.entries[2].Id)
+	assert.Equal(t, MessageId(1), messages.entries[0].Id)
+	assert.Equal(t, MessageId(2), messages.entries[1].Id)
+	assert.Equal(t, MessageId(3), messages.entries[2].Id)
 }

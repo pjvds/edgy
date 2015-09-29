@@ -15,8 +15,10 @@ var (
 )
 
 func main() {
+	//defer profile.Start(profile.CPUProfile).Stop()
+
 	flag.Parse()
-	tidy.Configure().LogFromLevel(tidy.INFO).To(tidy.Console).MustBuildDefault()
+	tidy.Configure().LogFromLevel(tidy.WARN).To(tidy.Console).MustBuildDefault()
 
 	directory := *datadir
 	if len(directory) == 0 {
