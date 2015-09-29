@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync"
 
 	"github.com/OneOfOne/xxhash/native"
 	"github.com/pjvds/tidy"
@@ -40,7 +39,6 @@ type TopicPartition struct {
 type Segment struct {
 	ref      SegmentRef
 	filename string
-	lock     *sync.RWMutex
 	file     *os.File
 	position int64
 	size     int64
@@ -202,7 +200,6 @@ func CreateSegment(ref SegmentRef, filename string, size int64) (*Segment, error
 	return &Segment{
 		ref:      ref,
 		filename: file.Name(),
-		lock:     new(sync.RWMutex),
 		file:     file,
 		position: 0,
 		size:     size,
@@ -229,16 +226,10 @@ func (this *Segment) SpaceLeftFor(messages *MessageSet) bool {
 }
 
 func (this *Segment) Sync() error {
-	this.lock.Lock()
-	defer this.lock.Unlock()
-
 	return this.file.Sync()
 }
 
 func (this *Segment) Close() error {
-	this.lock.Lock()
-	defer this.lock.Unlock()
-
 	if err := this.file.Sync(); err != nil {
 		return err
 	}
@@ -247,9 +238,6 @@ func (this *Segment) Close() error {
 }
 
 func (this *Segment) Append(messages *MessageSet) error {
-	this.lock.Lock()
-	defer this.lock.Unlock()
-
 	spaceLeft := this.size - this.position
 	if spaceLeft < int64(len(messages.buffer)) {
 		this.logger.Withs(tidy.Fields{
