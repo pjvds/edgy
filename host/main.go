@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/pjvds/edgy/server"
+	"github.com/pjvds/tidy"
 )
 
 var (
@@ -15,6 +16,7 @@ var (
 
 func main() {
 	flag.Parse()
+	tidy.Configure().LogFromLevel(tidy.INFO).To(tidy.Console).MustBuildDefault()
 
 	directory := *datadir
 	if len(directory) == 0 {
