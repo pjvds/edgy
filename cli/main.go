@@ -62,6 +62,14 @@ func main() {
 					Name:  "payload",
 					Value: "foobar",
 				},
+				cli.IntFlag{
+					Name:  "queue.size",
+					Value: 1000,
+				},
+				cli.DurationFlag{
+					Name:  "queue.time",
+					Value: 50 * time.Millisecond,
+				},
 			},
 			Action: func(ctx *cli.Context) {
 				host := ctx.String("host")
@@ -69,8 +77,13 @@ func main() {
 				topic := ctx.String("topic")
 				partitions := ctx.Int("partitions")
 				payload := []byte(ctx.String("payload"))
+				queueSize := ctx.Int("queue.size")
+				queueTime := ctx.Duration("queue.time")
 
-				producer, err := client.NewProducer(host)
+				producer, err := client.NewProducer(host, client.ProducerConfig{
+					QueueTime: queueTime,
+					QueueSize: queueSize,
+				})
 				if err != nil {
 					println("failed to create producer: " + err.Error())
 					return
