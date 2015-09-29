@@ -32,6 +32,29 @@ func (this *ReportingCounter) Inc() {
 	}
 }
 
+func merge(all ...chan []byte) <-chan []byte {
+	var work sync.WaitGroup
+	out := make(chan []byte)
+
+	pipe := func(in <-chan []byte) {
+		for value := range in {
+			out <- value
+		}
+		work.Done()
+	}
+
+	work.Add(len(all))
+	for _, one := range all {
+		go pipe(one)
+	}
+
+	go func() {
+		work.Wait()
+		close(out)
+	}()
+	return out
+}
+
 func main() {
 	//tidy.Configure().LogFromLevel(tidy.ERROR).To(tidy.Console).BuildDefault()
 	flag.Parse()
@@ -131,32 +154,40 @@ func main() {
 					Name:  "topic",
 					Value: "writebench",
 				},
-				cli.IntFlag{
-					Name:  "partition",
-					Value: 0,
-				},
 				cli.BoolFlag{
 					Name: "continuous",
+				},
+				cli.IntFlag{
+					Name:  "partitions",
+					Value: 1,
 				},
 			},
 			Action: func(ctx *cli.Context) {
 				host := ctx.String("host")
 				topic := ctx.String("topic")
 				continuous := ctx.Bool("continuous")
+				partitions := ctx.Int("partitions")
 
-				consumer, err := client.NewConsumer(host, topic, continuous)
+				partitionMessages := make([]chan []byte, partitions)
 
-				messageCounter := 0
+				for partition := 0; partition < partitions; partition++ {
+					consumer, err := client.NewConsumer(host, topic, continuous)
 
-				if err != nil {
-					println("failed to create consumer: " + err.Error())
-					return
+					if err != nil {
+						println("failed to create consumer: ", err)
+						return
+					}
+
+					partitionMessages[partition] = consumer.Messages
 				}
+
+				messages := merge(partitionMessages...)
+				messageCounter := 0
 
 				startedAt := time.Now()
 				byteCounter := int64(0)
 
-				for message := range consumer.Messages {
+				for message := range messages {
 					//header := storage.ReadHeader(message)
 					value := string(message[storage.HEADER_LENGTH:])
 
