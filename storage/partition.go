@@ -179,7 +179,6 @@ func OpenPartition(ref PartitionRef, config PartitionConfig, directory string) (
 				file:     file,
 				filename: filename,
 				size:     stat.Size(),
-				lock:     new(sync.RWMutex),
 			}
 			partition.segments.Append(segmentId, segment)
 		} else {
@@ -196,7 +195,6 @@ func OpenPartition(ref PartitionRef, config PartitionConfig, directory string) (
 			segment := &Segment{
 				ref:      ref.ToSegmentRef(segmentId),
 				file:     file,
-				lock:     new(sync.RWMutex),
 				filename: file.Name(),
 				position: check.LastMessagePosition + int64(HEADER_LENGTH+check.LastMessageContentLength),
 				size:     stat.Size(),
