@@ -9,7 +9,7 @@ import (
 
 	"github.com/codegangsta/cli"
 	"github.com/pjvds/edgy/client"
-	"github.com/pjvds/tidy"
+	"github.com/pjvds/edgy/storage"
 )
 
 type ReportingCounter struct {
@@ -33,7 +33,7 @@ func (this *ReportingCounter) Inc() {
 }
 
 func main() {
-	tidy.Configure().LogFromLevel(tidy.ERROR).To(tidy.Console).BuildDefault()
+	//tidy.Configure().LogFromLevel(tidy.ERROR).To(tidy.Console).BuildDefault()
 	flag.Parse()
 
 	app := cli.NewApp()
@@ -115,6 +115,65 @@ func main() {
 				fmt.Printf("total msgs: %v\n", num)
 				fmt.Printf("msgs/s: %v\n", msgsPerSecond)
 				fmt.Printf("total transfered: %v\n", totalMb)
+				fmt.Printf("MB/s: %v\n", totalMb/elapsed.Seconds())
+				fmt.Printf("done!")
+			},
+		},
+
+		cli.Command{
+			Name: "consume",
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "host",
+					Value: "localhost:5050",
+				},
+				cli.StringFlag{
+					Name:  "topic",
+					Value: "writebench",
+				},
+				cli.IntFlag{
+					Name:  "partition",
+					Value: 0,
+				},
+				cli.BoolFlag{
+					Name: "continuous",
+				},
+			},
+			Action: func(ctx *cli.Context) {
+				host := ctx.String("host")
+				topic := ctx.String("topic")
+				continuous := ctx.Bool("continuous")
+
+				consumer, err := client.NewConsumer(host, topic, continuous)
+
+				messageCounter := 0
+
+				if err != nil {
+					println("failed to create consumer: " + err.Error())
+					return
+				}
+
+				startedAt := time.Now()
+				byteCounter := int64(0)
+
+				for message := range consumer.Messages {
+					//header := storage.ReadHeader(message)
+					value := string(message[storage.HEADER_LENGTH:])
+
+					//fmt.Printf("[%v] %v\n", header.MessageId, value)
+
+					messageCounter++
+					byteCounter += int64(len(value))
+				}
+
+				elapsed := time.Since(startedAt)
+				msgsPerSecond := float64(messageCounter) / elapsed.Seconds()
+				totalMb := float64(byteCounter / (1e6))
+
+				fmt.Printf("run time: %v\n", elapsed)
+				fmt.Printf("total msgs: %v\n", messageCounter)
+				fmt.Printf("msgs/s: %v\n", msgsPerSecond)
+				fmt.Printf("total transfered: %vmb\n", totalMb)
 				fmt.Printf("MB/s: %v\n", totalMb/elapsed.Seconds())
 				fmt.Printf("done!")
 			},
