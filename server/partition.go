@@ -39,12 +39,15 @@ func NewPartitionController(ref storage.PartitionRef, rootDir string) *Partition
 	go controller.initialize()
 	go controller.appendLoop()
 
+	// TODO: remove blocking after read isn't a hack
+	<-controller.ready
+
 	return controller
 }
 
 func (this *PartitionController) initialize() {
 	// TODO: support closing
-	this.logger.With("partition", this.ref.String()).Debug("initializing partition controller")
+	this.logger.With("partition", this.ref.String()).Info("initializing partition controller")
 	directory := filepath.Join(this.rootDir, this.ref.Topic, this.ref.Partition.String())
 
 	delay := backoff.Exp(1*time.Millisecond, 15*time.Second)
@@ -78,7 +81,7 @@ func (this *PartitionController) HandleAppendRequest(request *api.AppendRequest)
 		"topic":         request.Topic,
 		"partition":     request.Partition,
 		"message_count": messageSet.MessageCount(),
-	}).Debug("sending append request")
+	}).Debug("handling append request")
 
 	result := make(chan error, 1)
 	this.appendRequests <- &AppendRequest{
@@ -96,11 +99,56 @@ func (this *PartitionController) HandleAppendRequest(request *api.AppendRequest)
 	}, nil
 }
 
+func (this *PartitionController) HandleReadRequest(request *api.ReadRequest) (*api.ReadReply, error) {
+	this.logger.Withs(tidy.Fields{
+		"topic":     request.Topic,
+		"partition": request.Partition,
+		"offset":    tidy.Stringify(request.Offset),
+	}).Debug("handling read request")
+
+	result, err := this.storage.ReadFrom(storage.Offset{
+		MessageId:    storage.MessageId(request.Offset.MessageId),
+		SegmentId:    storage.SegmentId(request.Offset.SegmentId),
+		LastPosition: request.Offset.EndPosition,
+	}, 5*1e6)
+	if err != nil {
+		return nil, err
+	}
+
+	return &api.ReadReply{
+		Messages: result.Messages.Buffer(),
+		Offset: &api.OffsetData{
+			MessageId:   uint64(result.Next.MessageId),
+			EndPosition: result.Next.LastPosition,
+			SegmentId:   uint64(result.Next.SegmentId),
+		},
+	}, nil
+}
+
 func (this *PartitionController) appendLoop() {
 	<-this.ready
 	this.logger.Debug("append loop started")
 
-	for request := range this.appendRequests {
-		request.Result <- this.storage.Append(request.MessageSet)
+	outstandingRequests := make([]*AppendRequest, 0)
+	syncTicker := time.NewTicker(50 * time.Millisecond)
+
+	for {
+		select {
+		case request := <-this.appendRequests:
+			if err := this.storage.Append(request.MessageSet); err != nil {
+				request.Result <- err
+				continue
+			}
+
+			outstandingRequests = append(outstandingRequests, request)
+		case <-syncTicker.C:
+			// TODO: re-check data on failure
+			err := this.storage.Sync()
+			for _, request := range outstandingRequests {
+				request.Result <- err
+			}
+
+			outstandingRequests = outstandingRequests[0:0]
+		}
 	}
 }

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/pjvds/edgy/api"
@@ -50,7 +49,28 @@ func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) 
 }
 
 func (this *Controller) Read(ctx context.Context, request *api.ReadRequest) (*api.ReadReply, error) {
-	return nil, errors.New("not implemented")
+	this.logger.Withs(tidy.Fields{
+		"topic":     request.Topic,
+		"partition": request.Partition,
+		"offset":    tidy.Stringify(request.Offset),
+	}).Debug("incoming read request")
+
+	ref := storage.PartitionRef{
+		Topic:     request.Topic,
+		Partition: storage.PartitionId(request.Partition),
+	}
+
+	partition, err := this.getPartition(ref)
+	if err != nil {
+		this.logger.With("partition", ref.String()).WithError(err).Error("failed to get or create storage for partition")
+		return nil, err
+	}
+
+	this.logger.With("partition", ref).Debug("dispatching request")
+	reply, err := partition.HandleReadRequest(request)
+
+	this.logger.With("reply", reply).WithError(err).Debug("read finished")
+	return reply, err
 }
 
 func (this *Controller) Ping(ctx context.Context, request *api.PingRequest) (*api.PingReply, error) {
