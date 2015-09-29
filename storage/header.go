@@ -1,5 +1,7 @@
 package storage
 
+import "unsafe"
+
 type ScanResult struct {
 	LastMessage Header
 }
@@ -21,6 +23,21 @@ func ReadHeader(buffer []byte) Header {
 		MessageId:     MessageId(byteOrder.Uint64(buffer[INDEX_ID:])),
 		ContentLength: int32(byteOrder.Uint32(buffer[INDEX_LENGTH:])),
 		ContentHash:   byteOrder.Uint64(buffer[INDEX_HASH:]),
+	}
+}
+
+func ReadHeaderUnsafe(buffer []byte) Header {
+	if len(buffer) < HEADER_LENGTH {
+		panic("buffer size too small")
+	}
+
+	p := unsafe.Pointer(&buffer[0])
+
+	return Header{
+		Magic:         *(*byte)(unsafe.Pointer(uintptr(p))),
+		MessageId:     *(*MessageId)(unsafe.Pointer(uintptr(p) + uintptr(INDEX_ID))),
+		ContentLength: *(*int32)(unsafe.Pointer(uintptr(p) + uintptr(INDEX_LENGTH))),
+		ContentHash:   *(*uint64)(unsafe.Pointer(uintptr(p) + uintptr(INDEX_HASH))),
 	}
 }
 
