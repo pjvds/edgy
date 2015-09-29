@@ -40,3 +40,35 @@ func TestReadHeaderUnsafe(t *testing.T) {
 	assert.Equal(t, header.ContentLength, result.ContentLength)
 	assert.Equal(t, header.ContentHash, result.ContentHash)
 }
+
+func BenchmarkReadHeader(b *testing.B) {
+	header := Header{
+		Magic:         START_VALUE,
+		MessageId:     MessageId(42),
+		ContentLength: 22,
+		ContentHash:   88,
+	}
+
+	buffer := make([]byte, HEADER_LENGTH)
+	header.Write(buffer)
+
+	for i := 0; i < b.N; i++ {
+		ReadHeader(buffer)
+	}
+}
+
+func BenchmarkReadHeaderUnsafe(b *testing.B) {
+	header := Header{
+		Magic:         START_VALUE,
+		MessageId:     MessageId(42),
+		ContentLength: 22,
+		ContentHash:   88,
+	}
+
+	buffer := make([]byte, HEADER_LENGTH)
+	header.Write(buffer)
+
+	for i := 0; i < b.N; i++ {
+		ReadHeaderUnsafe(buffer)
+	}
+}
