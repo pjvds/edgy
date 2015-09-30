@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,8 +56,9 @@ func merge(all ...chan []byte) <-chan []byte {
 	return out
 }
 
+var defaultHosts = cli.StringSlice([]string{"localhost:5050"})
+
 func main() {
-	//tidy.Configure().LogFromLevel(tidy.ERROR).To(tidy.Console).BuildDefault()
 	flag.Parse()
 
 	app := cli.NewApp()
@@ -66,16 +68,12 @@ func main() {
 			Name: "writebench",
 			Flags: []cli.Flag{
 				cli.StringFlag{
-					Name:  "host",
+					Name:  "hosts",
 					Value: "localhost:5050",
 				},
 				cli.StringFlag{
 					Name:  "topic",
 					Value: "writebench",
-				},
-				cli.IntFlag{
-					Name:  "partitions",
-					Value: 1,
 				},
 				cli.IntFlag{
 					Name:  "num",
@@ -95,15 +93,22 @@ func main() {
 				},
 			},
 			Action: func(ctx *cli.Context) {
-				host := ctx.String("host")
+				hosts := ctx.String("hosts")
 				num := ctx.Int("num")
 				topic := ctx.String("topic")
-				partitions := ctx.Int("partitions")
 				payload := []byte(ctx.String("payload"))
 				queueSize := ctx.Int("queue.size")
 				queueTime := ctx.Duration("queue.time")
 
-				producer, err := client.NewProducer(host, client.ProducerConfig{
+				builder := client.NewCluster()
+
+				for p, host := range strings.Split(hosts, ",") {
+					builder = builder.Node(host, host, int32(p))
+				}
+
+				cluster := builder.MustBuild()
+
+				producer, err := client.NewProducer(cluster, client.ProducerConfig{
 					QueueTime: queueTime,
 					QueueSize: queueSize,
 				})
@@ -119,7 +124,7 @@ func main() {
 				started := time.Now()
 
 				for n := 0; n < num; n++ {
-					partition := int32(n % partitions)
+					partition := int32(n % cluster.Partitions())
 					result := producer.Append(topic, partition, payload)
 
 					go func(result client.AppendResult) {
