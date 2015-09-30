@@ -1,6 +1,7 @@
 package client
 
 import (
+	"sync"
 	"time"
 
 	"github.com/pjvds/backoff"
@@ -11,18 +12,77 @@ import (
 	"google.golang.org/grpc"
 )
 
-type Consumer struct {
-	continuous bool
-
-	logger   tidy.Logger
-	topic    string
-	client   api.EdgyClient
-	Messages chan []byte
-
-	dispatch chan *storage.MessageSet
+type Consumer interface {
+	Messages() <-chan []byte
+	Close() error
 }
 
-func NewConsumer(host string, topic string, continuous bool) (*Consumer, error) {
+type MergeConsumer struct {
+	consumers []Consumer
+
+	messages chan []byte
+}
+
+func mergeConsumers(consumers ...Consumer) *MergeConsumer {
+	messages := make(chan []byte)
+	var work sync.WaitGroup
+
+	for _, consumer := range consumers {
+		work.Add(1)
+
+		go func(consumer Consumer) {
+			defer work.Done()
+			for value := range consumer.Messages() {
+				messages <- value
+			}
+		}(consumer)
+	}
+
+	go func() {
+		work.Wait()
+		close(messages)
+	}()
+
+	return &MergeConsumer{
+		consumers: consumers,
+		messages:  messages,
+	}
+}
+
+func (this *MergeConsumer) Messages() <-chan []byte {
+	return this.messages
+}
+
+func (this *MergeConsumer) Close() error {
+	// TODO: close all
+	return nil
+}
+
+type TopicPartitionConsumer struct {
+	host       string
+	continuous bool
+
+	logger    tidy.Logger
+	topic     string
+	partition int32
+	client    api.EdgyClient
+	messages  chan []byte
+
+	dispatch  chan *storage.MessageSet
+	close     chan struct{}
+	closeOnce sync.Once
+}
+
+func (this *TopicPartitionConsumer) Close() error {
+	// TODO: implement close
+	return nil
+}
+
+func (this *TopicPartitionConsumer) Messages() <-chan []byte {
+	return this.messages
+}
+
+func NewTopicPartitionConsumer(host string, topic string, partition int32, continuous bool) (*TopicPartitionConsumer, error) {
 	connection, err := grpc.Dial(host, grpc.WithInsecure())
 	if err != nil {
 		return nil, err
@@ -35,13 +95,16 @@ func NewConsumer(host string, topic string, continuous bool) (*Consumer, error) 
 		return nil, err
 	}
 
-	consumer := &Consumer{
+	consumer := &TopicPartitionConsumer{
+		host:       host,
 		continuous: continuous,
 		logger:     tidy.GetLogger(),
 		client:     client,
 		topic:      topic,
-		Messages:   make(chan []byte),
+		partition:  partition,
+		messages:   make(chan []byte),
 		dispatch:   make(chan *storage.MessageSet),
+		close:      make(chan struct{}),
 	}
 
 	go consumer.doReading()
@@ -50,26 +113,30 @@ func NewConsumer(host string, topic string, continuous bool) (*Consumer, error) 
 	return consumer, nil
 }
 
-func (this *Consumer) doDispatching() {
-	defer close(this.Messages)
+func (this *TopicPartitionConsumer) doDispatching() {
+	defer close(this.messages)
 
 	for messages := range this.dispatch {
 		for _, message := range messages.Messages() {
-			this.Messages <- message
+			this.messages <- message
 		}
 	}
 }
 
-func (this *Consumer) doReading() {
+func (this *TopicPartitionConsumer) doReading() {
 	offset := new(api.OffsetData)
 	delay := backoff.Exp(time.Millisecond, 1*time.Second)
 
 	defer close(this.dispatch)
 
-	for {
-		//fmt.Printf("READING REQUEST FROM: %v@%v/%v\n", offset.MessageId, offset.SegmentId, offset.EndPosition)
+	tidy.GetLogger().Withs(tidy.Fields{
+		"host":      this.host,
+		"topic":     this.topic,
+		"partition": this.partition,
+	}).Debug("reading started")
 
-		reply, err := this.client.Read(context.Background(), &api.ReadRequest{Topic: this.topic, Partition: 0, Offset: offset})
+	for {
+		reply, err := this.client.Read(context.Background(), &api.ReadRequest{Topic: this.topic, Partition: this.partition, Offset: offset})
 
 		if err != nil {
 			this.logger.WithError(err).Warn("read request failed")
