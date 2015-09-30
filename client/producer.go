@@ -3,10 +3,10 @@ package client
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"strconv"
 	"sync"
 	"time"
-
-	"google.golang.org/grpc"
 
 	"golang.org/x/net/context"
 
@@ -21,29 +21,17 @@ type ProducerConfig struct {
 }
 
 type Producer struct {
+	cluster  Cluster
 	logger   tidy.Logger
-	client   api.EdgyClient
 	requests chan appendRequest
 
 	config ProducerConfig
 }
 
-func NewProducer(address string, config ProducerConfig) (*Producer, error) {
-	connection, err := grpc.Dial(address, grpc.WithInsecure())
-	if err != nil {
-		return nil, err
-	}
-
-	client := api.NewEdgyClient(connection)
-
-	if _, err := client.Ping(context.Background(), &api.PingRequest{}); err != nil {
-		connection.Close()
-		return nil, err
-	}
-
+func NewProducer(cluster Cluster, config ProducerConfig) (*Producer, error) {
 	producer := &Producer{
+		cluster:  cluster,
 		logger:   tidy.GetLogger(),
-		client:   api.NewEdgyClient(connection),
 		requests: make(chan appendRequest),
 		config:   config,
 	}
@@ -104,6 +92,13 @@ func (this *Producer) getSender(topic string, partition int32) chan appendReques
 }
 
 func (this *Producer) senderLoop(topic string, partition int32, requests chan appendRequest) {
+	node, ok := this.cluster.GetNode(partition)
+	if !ok {
+		panic("no node for partition " + strconv.Itoa(int(partition)))
+	}
+	client := node.client
+	logger := this.logger.With("sender", fmt.Sprintf("%v/%v@%v", topic, partition, node.IP))
+
 	callbacks := make([]chan error, 0, this.config.QueueSize)
 	buffer := new(bytes.Buffer)
 
@@ -128,16 +123,16 @@ func (this *Producer) senderLoop(topic string, partition int32, requests chan ap
 				buffer.Write(storage.NewMessage(0, request.Message))
 
 			case <-timeout:
-				this.logger.With("timeout", this.config.QueueTime).Debug("queue time expired")
+				logger.With("timeout", this.config.QueueTime).Debug("queue time expired")
 				break enqueue
 			}
 		}
 
-		this.logger.Withs(tidy.Fields{
+		logger.Withs(tidy.Fields{
 			"queue_size": len(callbacks),
 		}).Debug("")
 
-		reply, err := this.client.Append(context.Background(), &api.AppendRequest{
+		reply, err := client.Append(context.Background(), &api.AppendRequest{
 			Topic:     topic,
 			Partition: partition,
 			Messages:  buffer.Bytes(),
