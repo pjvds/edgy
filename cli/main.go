@@ -152,7 +152,7 @@ func main() {
 			Name: "consume",
 			Flags: []cli.Flag{
 				cli.StringFlag{
-					Name:  "host",
+					Name:  "hosts",
 					Value: "localhost:5050",
 				},
 				cli.StringFlag{
@@ -162,37 +162,30 @@ func main() {
 				cli.BoolFlag{
 					Name: "continuous",
 				},
-				cli.IntFlag{
-					Name:  "partitions",
-					Value: 1,
-				},
 			},
 			Action: func(ctx *cli.Context) {
-				host := ctx.String("host")
+				hosts := ctx.String("hosts")
 				topic := ctx.String("topic")
 				continuous := ctx.Bool("continuous")
-				partitions := ctx.Int("partitions")
 
-				partitionMessages := make([]chan []byte, partitions)
+				builder := client.NewCluster()
 
-				for partition := 0; partition < partitions; partition++ {
-					consumer, err := client.NewConsumer(host, topic, continuous)
-
-					if err != nil {
-						println("failed to create consumer: ", err)
-						return
-					}
-
-					partitionMessages[partition] = consumer.Messages
+				for p, host := range strings.Split(hosts, ",") {
+					builder = builder.Node(host, host, int32(p))
 				}
 
-				messages := merge(partitionMessages...)
-				messageCounter := 0
+				cluster := builder.MustBuild()
+				consumer, err := cluster.Consume(topic, continuous)
 
+				if err != nil {
+					println(err)
+					return
+				}
+
+				var messageCounter, byteCounter int64
 				startedAt := time.Now()
-				byteCounter := int64(0)
 
-				for message := range messages {
+				for message := range consumer.Messages() {
 					//header := storage.ReadHeader(message)
 					value := string(message[storage.HEADER_LENGTH:])
 
