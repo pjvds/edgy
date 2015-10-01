@@ -2,9 +2,7 @@ package client
 
 import (
 	"sync"
-	"time"
 
-	"github.com/pjvds/backoff"
 	"github.com/pjvds/edgy/api"
 	"github.com/pjvds/edgy/storage"
 	"github.com/pjvds/tidy"
@@ -125,27 +123,38 @@ func (this *TopicPartitionConsumer) doDispatching() {
 
 func (this *TopicPartitionConsumer) doReading() {
 	offset := new(api.OffsetData)
-	delay := backoff.Exp(time.Millisecond, 1*time.Second)
+	//delay := backoff.Exp(time.Millisecond, 1*time.Second)
 
 	defer close(this.dispatch)
 
-	tidy.GetLogger().Withs(tidy.Fields{
+	logger := tidy.GetLogger().Withs(tidy.Fields{
 		"host":      this.host,
 		"topic":     this.topic,
 		"partition": this.partition,
-	}).Debug("reading started")
+	})
+	logger.Debug("reading started")
+
+	replies, err := this.client.Read(context.Background(), &api.ReadRequest{Topic: this.topic, Partition: this.partition, Offset: offset})
+
+	if err != nil {
+		logger.WithError(err).Error("read request failed")
+		return
+	}
 
 	for {
-		reply, err := this.client.Read(context.Background(), &api.ReadRequest{Topic: this.topic, Partition: this.partition, Offset: offset})
-
+		reply, err := replies.Recv()
 		if err != nil {
-			this.logger.WithError(err).Warn("read request failed")
-			delay.Delay()
-			continue
+			logger.WithError(err).Error("read request failed")
+			break
 		}
 
-		if !this.continuous && len(reply.Messages) == 0 {
+		if len(reply.Messages) == 0 {
+			logger.With("offset", offset).Warn("EOF")
 			return
+		}
+
+		if this.logger.IsDebug() {
+			logger.With("offset", offset).Debug("reply received")
 		}
 
 		this.dispatch <- storage.NewMessageSetFromBuffer(reply.Messages)
