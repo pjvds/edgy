@@ -192,12 +192,12 @@ func main() {
 				msgsPerSecond := float64(messageCounter) / elapsed.Seconds()
 				totalMb := float64(byteCounter / (1e6))
 
-				fmt.Printf("run time: %v\n", elapsed)
-				fmt.Printf("total msgs: %v\n", messageCounter)
-				fmt.Printf("msgs/s: %v\n", msgsPerSecond)
-				fmt.Printf("total transfered: %vmb\n", totalMb)
-				fmt.Printf("MB/s: %v\n", totalMb/elapsed.Seconds())
-				fmt.Printf("done!")
+				fmt.Fprintf(os.Stderr, "run time: %v\n", elapsed)
+				fmt.Fprintf(os.Stderr, "total msgs: %v\n", messageCounter)
+				fmt.Fprintf(os.Stderr, "msgs/s: %v\n", msgsPerSecond)
+				fmt.Fprintf(os.Stderr, "total transfered: %vmb\n", totalMb)
+				fmt.Fprintf(os.Stderr, "MB/s: %v\n", totalMb/elapsed.Seconds())
+				fmt.Fprintf(os.Stderr, "done!")
 			},
 		},
 	}
