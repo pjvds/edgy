@@ -155,17 +155,13 @@ func main() {
 					Value: "localhost:5050",
 				},
 				cli.StringFlag{
-					Name:  "topic",
+					Name:  "topics",
 					Value: "writebench",
-				},
-				cli.BoolFlag{
-					Name: "continuous",
 				},
 			},
 			Action: func(ctx *cli.Context) {
 				hosts := ctx.String("hosts")
-				topic := ctx.String("topic")
-				continuous := ctx.Bool("continuous")
+				topics := ctx.String("topics")
 
 				builder := client.NewCluster()
 
@@ -174,8 +170,8 @@ func main() {
 				}
 
 				cluster := builder.MustBuild()
-				consumer, err := cluster.Consume(topic, continuous)
 
+				consumer, err := cluster.Consume(strings.Split(topics, ",")...)
 				if err != nil {
 					println(err)
 					return
