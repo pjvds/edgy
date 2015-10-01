@@ -181,10 +181,8 @@ func main() {
 				startedAt := time.Now()
 
 				for message := range consumer.Messages() {
-					//header := storage.ReadHeader(message)
 					value := string(message[storage.HEADER_LENGTH:])
-
-					//fmt.Printf("[%v] %v\n", header.MessageId, value)
+					fmt.Fprintln(os.Stdout, value)
 
 					messageCounter++
 					byteCounter += int64(len(value))
