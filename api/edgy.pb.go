@@ -116,7 +116,7 @@ var _ grpc.ClientConn
 
 type EdgyClient interface {
 	Append(ctx context.Context, in *AppendRequest, opts ...grpc.CallOption) (*AppendReply, error)
-	Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (*ReadReply, error)
+	Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (Edgy_ReadClient, error)
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingReply, error)
 }
 
@@ -137,13 +137,36 @@ func (c *edgyClient) Append(ctx context.Context, in *AppendRequest, opts ...grpc
 	return out, nil
 }
 
-func (c *edgyClient) Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (*ReadReply, error) {
-	out := new(ReadReply)
-	err := grpc.Invoke(ctx, "/api.Edgy/Read", in, out, c.cc, opts...)
+func (c *edgyClient) Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (Edgy_ReadClient, error) {
+	stream, err := grpc.NewClientStream(ctx, &_Edgy_serviceDesc.Streams[0], c.cc, "/api.Edgy/Read", opts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &edgyReadClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Edgy_ReadClient interface {
+	Recv() (*ReadReply, error)
+	grpc.ClientStream
+}
+
+type edgyReadClient struct {
+	grpc.ClientStream
+}
+
+func (x *edgyReadClient) Recv() (*ReadReply, error) {
+	m := new(ReadReply)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func (c *edgyClient) Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingReply, error) {
@@ -159,7 +182,7 @@ func (c *edgyClient) Ping(ctx context.Context, in *PingRequest, opts ...grpc.Cal
 
 type EdgyServer interface {
 	Append(context.Context, *AppendRequest) (*AppendReply, error)
-	Read(context.Context, *ReadRequest) (*ReadReply, error)
+	Read(*ReadRequest, Edgy_ReadServer) error
 	Ping(context.Context, *PingRequest) (*PingReply, error)
 }
 
@@ -179,16 +202,25 @@ func _Edgy_Append_Handler(srv interface{}, ctx context.Context, codec grpc.Codec
 	return out, nil
 }
 
-func _Edgy_Read_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
-	in := new(ReadRequest)
-	if err := codec.Unmarshal(buf, in); err != nil {
-		return nil, err
+func _Edgy_Read_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ReadRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
 	}
-	out, err := srv.(EdgyServer).Read(ctx, in)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
+	return srv.(EdgyServer).Read(m, &edgyReadServer{stream})
+}
+
+type Edgy_ReadServer interface {
+	Send(*ReadReply) error
+	grpc.ServerStream
+}
+
+type edgyReadServer struct {
+	grpc.ServerStream
+}
+
+func (x *edgyReadServer) Send(m *ReadReply) error {
+	return x.ServerStream.SendMsg(m)
 }
 
 func _Edgy_Ping_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
@@ -212,13 +244,15 @@ var _Edgy_serviceDesc = grpc.ServiceDesc{
 			Handler:    _Edgy_Append_Handler,
 		},
 		{
-			MethodName: "Read",
-			Handler:    _Edgy_Read_Handler,
-		},
-		{
 			MethodName: "Ping",
 			Handler:    _Edgy_Ping_Handler,
 		},
 	},
-	Streams: []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Read",
+			Handler:       _Edgy_Read_Handler,
+			ServerStreams: true,
+		},
+	},
 }

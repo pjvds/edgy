@@ -4,7 +4,7 @@ package api;
 
 service Edgy {
 	rpc Append(AppendRequest) returns (AppendReply) {}
-	rpc Read(ReadRequest) returns (ReadReply) {}
+	rpc Read(ReadRequest) returns (stream ReadReply) {}
 	rpc Ping(PingRequest) returns(PingReply) {}
 }
 

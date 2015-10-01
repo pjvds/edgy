@@ -1,6 +1,7 @@
 package server
 
 import (
+	"io"
 	"sync"
 
 	"github.com/pjvds/edgy/api"
@@ -48,7 +49,7 @@ func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) 
 	return partition.HandleAppendRequest(request)
 }
 
-func (this *Controller) Read(ctx context.Context, request *api.ReadRequest) (*api.ReadReply, error) {
+func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServer) error {
 	this.logger.Withs(tidy.Fields{
 		"topic":     request.Topic,
 		"partition": request.Partition,
@@ -63,14 +64,31 @@ func (this *Controller) Read(ctx context.Context, request *api.ReadRequest) (*ap
 	partition, err := this.getPartition(ref)
 	if err != nil {
 		this.logger.With("partition", ref.String()).WithError(err).Error("failed to get or create storage for partition")
-		return nil, err
+		return err
 	}
 
 	this.logger.With("partition", ref).Debug("dispatching request")
-	reply, err := partition.HandleReadRequest(request)
 
-	this.logger.With("reply", reply).WithError(err).Debug("read finished")
-	return reply, err
+	for {
+		reply, err := partition.HandleReadRequest(request)
+
+		this.logger.With("reply", reply).WithError(err).Debug("read finished")
+
+		if len(reply.Messages) == 0 {
+			this.logger.With("partition", ref).WithError(io.EOF).Debug("read finished")
+			return io.EOF
+		}
+
+		if err := stream.Send(reply); err != nil {
+			return err
+		}
+
+		request.Offset = &api.OffsetData{
+			MessageId:   reply.Offset.MessageId,
+			SegmentId:   reply.Offset.SegmentId,
+			EndPosition: reply.Offset.EndPosition,
+		}
+	}
 }
 
 func (this *Controller) Ping(ctx context.Context, request *api.PingRequest) (*api.PingReply, error) {
