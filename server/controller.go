@@ -72,7 +72,18 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 	for {
 		reply, err := partition.HandleReadRequest(request)
 
-		this.logger.With("reply", reply).WithError(err).Debug("read finished")
+		if err != nil {
+			if err == io.EOF {
+				this.logger.With("reply", reply).WithError(err).Debug("read finished")
+			} else {
+				this.logger.Withs(tidy.Fields{
+					"topic":     request.Topic,
+					"partition": request.Partition,
+					"offset":    tidy.Stringify(request.Offset),
+				}).WithError(err).Error("read failed")
+			}
+			return err
+		}
 
 		if len(reply.Messages) == 0 {
 			this.logger.With("partition", ref).WithError(io.EOF).Debug("read finished")
