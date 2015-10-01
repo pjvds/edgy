@@ -23,7 +23,7 @@ type MergeConsumer struct {
 	messages chan []byte
 }
 
-func mergeConsumers(consumers ...Consumer) *MergeConsumer {
+func MergeConsumers(consumers ...Consumer) *MergeConsumer {
 	messages := make(chan []byte)
 	var work sync.WaitGroup
 

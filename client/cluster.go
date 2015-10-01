@@ -21,21 +21,23 @@ type Cluster struct {
 	nodes []Node
 }
 
-func (this Cluster) Consume(topic string, continuous bool) (Consumer, error) {
-	consumers := make([]Consumer, len(this.nodes))
+func (this Cluster) Consume(topics ...string) (Consumer, error) {
+	consumers := make([]Consumer, 0, len(this.nodes)*len(topics))
 
-	for index, node := range this.nodes {
-		consumer, err := node.ConsumeTopic(topic, continuous)
+	for _, node := range this.nodes {
+		for _, topic := range topics {
+			consumer, err := node.ConsumeTopic(topic, false)
 
-		if err != nil {
-			// TODO: close consumers
-			return nil, err
+			if err != nil {
+				// TODO: close consumers
+				return nil, err
+			}
+
+			consumers = append(consumers, consumer)
 		}
-
-		consumers[index] = consumer
 	}
 
-	return mergeConsumers(consumers...), nil
+	return MergeConsumers(consumers...), nil
 }
 
 func (this ClusterBuilder) Node(name, ip string, partition int32) ClusterBuilder {
