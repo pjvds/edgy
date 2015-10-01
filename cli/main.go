@@ -124,8 +124,7 @@ func main() {
 				started := time.Now()
 
 				for n := 0; n < num; n++ {
-					partition := int32(n % cluster.Partitions())
-					result := producer.Append(topic, partition, payload)
+					result := producer.Append(topic, n, payload)
 
 					go func(result client.AppendResult) {
 						result.Wait()

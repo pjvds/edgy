@@ -51,8 +51,10 @@ type appendRequest struct {
 	result  chan error
 }
 
-func (this *Producer) Append(topic string, partition int32, message []byte) AppendResult {
+func (this *Producer) Append(topic string, key int, message []byte) AppendResult {
 	result := make(chan error, 1)
+	partition := int32(key % this.cluster.Partitions())
+
 	this.getSender(topic, partition) <- appendRequest{
 		Message: message,
 		result:  result,
