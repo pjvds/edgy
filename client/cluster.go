@@ -37,6 +37,9 @@ func (this Cluster) Consume(topics ...string) (Consumer, error) {
 		}
 	}
 
+	if len(consumers) == 1 {
+		return consumers[0], nil
+	}
 	return MergeConsumers(consumers...), nil
 }
 
