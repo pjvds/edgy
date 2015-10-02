@@ -158,10 +158,14 @@ func main() {
 					Name:  "topics",
 					Value: "writebench",
 				},
+				cli.BoolFlag{
+					Name: "devnull",
+				},
 			},
 			Action: func(ctx *cli.Context) {
 				hosts := ctx.String("hosts")
 				topics := ctx.String("topics")
+				devnull := ctx.Bool("devnull")
 
 				builder := client.NewCluster()
 
@@ -182,7 +186,10 @@ func main() {
 
 				for message := range consumer.Messages() {
 					value := string(message[storage.HEADER_LENGTH:])
-					fmt.Fprintln(os.Stdout, value)
+
+					if !devnull {
+						fmt.Fprintln(os.Stdout, value)
+					}
 
 					messageCounter++
 					byteCounter += int64(len(value))
