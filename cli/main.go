@@ -190,7 +190,7 @@ func main() {
 
 				elapsed := time.Since(startedAt)
 				msgsPerSecond := float64(messageCounter) / elapsed.Seconds()
-				totalMb := float64(byteCounter / (1e6))
+				totalMb := float64(byteCounter) / (1e6)
 
 				fmt.Fprintf(os.Stderr, "run time: %v\n", elapsed)
 				fmt.Fprintf(os.Stderr, "total msgs: %v\n", messageCounter)
