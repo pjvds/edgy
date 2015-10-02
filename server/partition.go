@@ -139,6 +139,7 @@ func (this *PartitionController) appendLoop() {
 				request.Result <- err
 				continue
 			}
+			request.Result <- nil
 
 			outstandingRequests = append(outstandingRequests, request)
 		case <-syncTicker.C:

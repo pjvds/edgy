@@ -2,6 +2,7 @@ package server
 
 import (
 	"io"
+	"runtime"
 	"sync"
 
 	"github.com/pjvds/edgy/api"
@@ -10,20 +11,78 @@ import (
 	"golang.org/x/net/context"
 )
 
+type RequestContext struct {
+	Partition *PartitionController
+	Request   interface{}
+	done      chan struct {
+		Response interface{}
+		Error    error
+	}
+}
+
+func (this RequestContext) Wait() (response interface{}, err error) {
+	result := <-this.done
+	return result.Response, result.Error
+}
+
+func NewRequestContext(partition *PartitionController, request interface{}) RequestContext {
+	return RequestContext{
+		Partition: partition,
+		Request:   request,
+		done: make(chan struct {
+			Response interface{}
+			Error    error
+		}),
+	}
+}
+
 type Controller struct {
 	logger tidy.Logger
 
 	partitions     map[storage.PartitionRef]*PartitionController
 	partitionsLock sync.RWMutex
 
+	requests chan RequestContext
+
 	directory string
 }
 
 func NewController(directory string) *Controller {
-	return &Controller{
+	controller := &Controller{
+		requests:   make(chan RequestContext),
 		logger:     tidy.GetLogger(),
 		partitions: make(map[storage.PartitionRef]*PartitionController),
 		directory:  directory,
+	}
+	controller.start(runtime.NumCPU())
+	return controller
+}
+
+func (this *Controller) start(workerCount int) {
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			// TODO: isn't this a great place to reuse buffers?
+			for context := range this.requests {
+				switch request := context.Request.(type) {
+				case *api.AppendRequest:
+					reply, err := context.Partition.HandleAppendRequest(request)
+					context.done <- struct {
+						Response interface{}
+						Error    error
+					}{
+						reply, err,
+					}
+				case *api.ReadRequest:
+					reply, err := context.Partition.HandleReadRequest(request)
+					context.done <- struct {
+						Response interface{}
+						Error    error
+					}{
+						reply, err,
+					}
+				}
+			}
+		}()
 	}
 }
 
@@ -44,9 +103,15 @@ func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) 
 		return nil, err
 	}
 
-	this.logger.With("partition", ref).Debug("dispatching request")
+	context := NewRequestContext(partition, request)
+	this.requests <- context
 
-	return partition.HandleAppendRequest(request)
+	reply, err := context.Wait()
+	if err != nil {
+		return nil, err
+	} else {
+		return reply.(*api.AppendReply), nil
+	}
 }
 
 func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServer) error {
@@ -70,11 +135,17 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 	this.logger.With("partition", ref).Debug("dispatching request")
 
 	for {
-		reply, err := partition.HandleReadRequest(request)
+		context := NewRequestContext(partition, request)
+		this.requests <- context
 
+		untypedReply, err := context.Wait()
 		if err != nil {
 			if err == io.EOF {
-				this.logger.With("reply", reply).WithError(err).Debug("read finished")
+				this.logger.Withs(tidy.Fields{
+					"topic":     request.Topic,
+					"partition": request.Partition,
+					"offset":    tidy.Stringify(request.Offset),
+				}).WithError(err).Debug("read finished")
 			} else {
 				this.logger.Withs(tidy.Fields{
 					"topic":     request.Topic,
@@ -84,6 +155,7 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 			}
 			return err
 		}
+		reply := untypedReply.(*api.ReadReply)
 
 		if len(reply.Messages) == 0 {
 			this.logger.With("partition", ref).WithError(io.EOF).Debug("read finished")
