@@ -178,7 +178,7 @@ func main() {
 
 				fmt.Fprintf(os.Stderr, "run time: %v\n", elapsed)
 				fmt.Fprintf(os.Stderr, "total msgs: %v\n", messageCounter)
-				fmt.Fprintf(os.Stderr, "msgs/s: %v\n", msgsPerSecond)
+				fmt.Fprintf(os.Stderr, "msgs/s: %f\n", msgsPerSecond)
 				fmt.Fprintf(os.Stderr, "total transfered: %vmb\n", totalMb)
 				fmt.Fprintf(os.Stderr, "MB/s: %v\n", totalMb/elapsed.Seconds())
 				fmt.Fprintf(os.Stderr, "done!")
