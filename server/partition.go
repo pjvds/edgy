@@ -8,6 +8,7 @@ import (
 	"github.com/pjvds/edgy/api"
 	"github.com/pjvds/edgy/storage"
 	"github.com/pjvds/tidy"
+	"github.com/rcrowley/go-metrics"
 )
 
 type AppendRequest struct {
@@ -17,6 +18,12 @@ type AppendRequest struct {
 }
 
 type PartitionController struct {
+	bytesInRate  metrics.Counter
+	bytesOutRate metrics.Counter
+
+	messagesInRate  metrics.Counter
+	messagesOutRate metrics.Counter
+
 	ref     storage.PartitionRef
 	rootDir string
 	logger  tidy.Logger
@@ -27,8 +34,14 @@ type PartitionController struct {
 	appendRequests chan *AppendRequest
 }
 
-func NewPartitionController(ref storage.PartitionRef, rootDir string) *PartitionController {
+func NewPartitionController(ref storage.PartitionRef, rootDir string, metricsRegistry metrics.Registry) *PartitionController {
 	controller := &PartitionController{
+		bytesInRate:  metrics.GetOrRegisterCounter("bytes-in", metricsRegistry),
+		bytesOutRate: metrics.GetOrRegisterCounter("bytes-out", metricsRegistry),
+
+		messagesInRate:  metrics.GetOrRegisterCounter("messages-in", metricsRegistry),
+		messagesOutRate: metrics.GetOrRegisterCounter("messages-out", metricsRegistry),
+
 		ref:            ref,
 		rootDir:        rootDir,
 		logger:         tidy.GetLogger(),
@@ -74,6 +87,7 @@ func (this *PartitionController) initialize() {
 }
 
 func (this *PartitionController) HandleAppendRequest(request *api.AppendRequest) (*api.AppendReply, error) {
+
 	// TODO: use method that validates the buffer
 	messageSet := storage.NewMessageSetFromBuffer(request.Messages)
 
@@ -93,7 +107,14 @@ func (this *PartitionController) HandleAppendRequest(request *api.AppendRequest)
 
 	err := <-result
 
+	if err != nil {
+		this.logger.WithError(err).Error("append request failed")
+	}
 	this.logger.WithError(err).Debug("result received")
+
+	this.bytesInRate.Inc(messageSet.DataLen64())
+	this.messagesInRate.Inc(int64(messageSet.MessageCount()))
+
 	return &api.AppendReply{
 		Ok: err == nil,
 	}, nil
@@ -110,10 +131,13 @@ func (this *PartitionController) HandleReadRequest(request *api.ReadRequest) (*a
 		MessageId: storage.MessageId(request.Offset.MessageId),
 		SegmentId: storage.SegmentId(request.Offset.SegmentId),
 		Position:  request.Offset.EndPosition,
-	}, 5*1e6)
+	}, 2*1e6)
 	if err != nil {
 		return nil, err
 	}
+
+	this.bytesOutRate.Inc(int64(len(result.Messages)))
+	this.messagesOutRate.Inc(int64(result.MessageCount))
 
 	return &api.ReadReply{
 		Messages: result.Messages,

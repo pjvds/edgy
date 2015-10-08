@@ -5,20 +5,23 @@ import (
 
 	"github.com/pjvds/edgy/api"
 	"github.com/pjvds/tidy"
+	"github.com/rcrowley/go-metrics"
 
 	"google.golang.org/grpc"
 )
 
 type Server struct {
+	registry   metrics.Registry
 	logger     tidy.Logger
 	controller *Controller
 }
 
-func ListenAndServe(address string, directory string) error {
+func ListenAndServe(address string, directory string, registry metrics.Registry) error {
 	logger := tidy.GetLogger()
 	server := &Server{
+		registry:   registry,
 		logger:     logger,
-		controller: NewController(directory),
+		controller: NewController(directory, registry),
 	}
 
 	logger.With("address", address).Debug("creating listeners")

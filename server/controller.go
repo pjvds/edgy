@@ -4,10 +4,12 @@ import (
 	"io"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/pjvds/edgy/api"
 	"github.com/pjvds/edgy/storage"
 	"github.com/pjvds/tidy"
+	"github.com/rcrowley/go-metrics"
 	"golang.org/x/net/context"
 )
 
@@ -37,7 +39,8 @@ func NewRequestContext(partition *PartitionController, request interface{}) Requ
 }
 
 type Controller struct {
-	logger tidy.Logger
+	logger           tidy.Logger
+	metricsRegistery metrics.Registry
 
 	partitions     map[storage.PartitionRef]*PartitionController
 	partitionsLock sync.RWMutex
@@ -47,22 +50,28 @@ type Controller struct {
 	directory string
 }
 
-func NewController(directory string) *Controller {
+func NewController(directory string, metricsRegistery metrics.Registry) *Controller {
 	controller := &Controller{
-		requests:   make(chan RequestContext),
-		logger:     tidy.GetLogger(),
-		partitions: make(map[storage.PartitionRef]*PartitionController),
-		directory:  directory,
+		requests:         make(chan RequestContext),
+		metricsRegistery: metricsRegistery,
+		logger:           tidy.GetLogger(),
+		partitions:       make(map[storage.PartitionRef]*PartitionController),
+		directory:        directory,
 	}
 	controller.start(runtime.NumCPU())
 	return controller
 }
 
 func (this *Controller) start(workerCount int) {
+	requestRate := metrics.GetOrRegisterMeter("requests", this.metricsRegistery)
+	requestLatency := metrics.GetOrRegisterTimer("request-latency", this.metricsRegistery)
+
 	for i := 0; i < workerCount; i++ {
 		go func() {
 			// TODO: isn't this a great place to reuse buffers?
 			for context := range this.requests {
+				startedAt := time.Now()
+
 				switch request := context.Request.(type) {
 				case *api.AppendRequest:
 					reply, err := context.Partition.HandleAppendRequest(request)
@@ -72,6 +81,7 @@ func (this *Controller) start(workerCount int) {
 					}{
 						reply, err,
 					}
+
 				case *api.ReadRequest:
 					reply, err := context.Partition.HandleReadRequest(request)
 					context.done <- struct {
@@ -81,6 +91,9 @@ func (this *Controller) start(workerCount int) {
 						reply, err,
 					}
 				}
+
+				requestRate.Mark(1)
+				requestLatency.UpdateSince(startedAt)
 			}
 		}()
 	}
@@ -193,7 +206,7 @@ func (this *Controller) getPartition(ref storage.PartitionRef) (*PartitionContro
 			return partition, nil
 		}
 
-		partition = NewPartitionController(ref, this.directory)
+		partition = NewPartitionController(ref, this.directory, this.metricsRegistery)
 		this.partitions[ref] = partition
 	}
 
