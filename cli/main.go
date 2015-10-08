@@ -61,7 +61,7 @@ func main() {
 				},
 				cli.StringFlag{
 					Name:  "payload",
-					Value: "foobar",
+					Value: "0riivLY4HhlSG6VH53BxC2T7f5RlfsfAklLX36pIx7oVfy2bHiVQCzDjrQ6kr65dRxHxWfEdIjli0dAJSOk3XJMMm9UVv9GXFLJUT8NLUzKV04a4KFdl8rl3ZHTnKrDtSxKDRAkCMEXtbkxmvIH4jkYCc8Fz1dqebjOJm87CJDmKsp0rYlrTrdyPnhM5gmXaWnj3wb57i2BxEMuP9bh8GAqSjYGcInpngcUKdrByjBsuMDQJOanq2tVHvQoFvHfkxDzo2MVHEj1LYuF8n4eisF0Tx0Ocp5w1mIwX36MTBIrm",
 				},
 				cli.IntFlag{
 					Name:  "queue.size",
