@@ -138,7 +138,7 @@ func NewMessageSetFromBuffer(buffer []byte) *MessageSet {
 	entries := make([]SetEntry, 0, 5)
 
 	for position+HEADER_LENGTH < len(buffer) {
-		header := ReadHeader(buffer[position:])
+		header := ReadHeaderUnsafe(buffer[position:])
 
 		if header.Magic != START_VALUE {
 			if header.Magic != 0 && header.Magic != END_OF_SEGMENT {
