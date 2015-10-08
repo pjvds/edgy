@@ -345,8 +345,9 @@ func (this *Partition) Append(messages *MessageSet) error {
 }
 
 type ReadResult struct {
-	Messages []byte
-	Next     Offset
+	MessageCount int
+	Messages     []byte
+	Next         Offset
 }
 
 func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (ReadResult, error) {
@@ -448,6 +449,7 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (Rea
 		// }
 
 		position := 0
+		messageCount := 0
 
 		for {
 			if position > read-HEADER_LENGTH {
@@ -487,6 +489,7 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (Rea
 			next.Position += int64(HEADER_LENGTH + header.ContentLength)
 
 			position += int(HEADER_LENGTH + header.ContentLength)
+			messageCount++
 		}
 
 		this.logger.Withs(tidy.Fields{
@@ -495,8 +498,9 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (Rea
 		}).Info("read success")
 
 		return ReadResult{
-			Messages: buffer[0:position],
-			Next:     next,
+			MessageCount: messageCount,
+			Messages:     buffer[0:position],
+			Next:         next,
 		}, nil
 	}
 }
