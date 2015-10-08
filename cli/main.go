@@ -13,26 +13,6 @@ import (
 	"github.com/pjvds/edgy/storage"
 )
 
-type ReportingCounter struct {
-	counter    int64
-	lastCount  int64
-	lastReport time.Time
-}
-
-func (this *ReportingCounter) Inc() {
-	this.counter++
-
-	now := time.Now()
-	since := this.lastReport.Sub(now)
-
-	if since.Seconds() > 1 {
-		diff := float64(this.counter - this.lastCount)
-		fmt.Printf("%v messages per second: %v,%v\r\n", diff/since.Seconds(), this.counter, this.lastCount)
-
-		this.lastCount = this.counter
-	}
-}
-
 func merge(all ...chan []byte) <-chan []byte {
 	var work sync.WaitGroup
 	out := make(chan []byte)
@@ -117,7 +97,6 @@ func main() {
 					return
 				}
 
-				counter := new(ReportingCounter)
 				work := sync.WaitGroup{}
 				work.Add(num)
 
@@ -130,8 +109,6 @@ func main() {
 						result.Wait()
 						work.Done()
 					}(result)
-
-					counter.Inc()
 				}
 
 				elapsed := time.Now().Sub(started)
