@@ -52,7 +52,9 @@ func (this *MergeConsumer) Messages() <-chan []byte {
 }
 
 func (this *MergeConsumer) Close() error {
-	// TODO: close all
+	for _, consumer := range this.consumers {
+		consumer.Close()
+	}
 	return nil
 }
 
