@@ -21,6 +21,10 @@ type Cluster struct {
 	nodes []Node
 }
 
+func (this Cluster) Node(partition int) Node {
+	return this.nodes[partition]
+}
+
 func (this Cluster) Consume(topics ...string) (Consumer, error) {
 	consumers := make([]Consumer, 0, len(this.nodes)*len(topics))
 
