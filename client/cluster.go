@@ -30,7 +30,7 @@ func (this Cluster) Consume(topics ...string) (Consumer, error) {
 
 	for _, node := range this.nodes {
 		for _, topic := range topics {
-			consumer, err := node.ConsumeTopic(topic, false)
+			consumer, err := node.ConsumeTopic(topic, OffsetBeginning, false)
 
 			if err != nil {
 				// TODO: close consumers
@@ -72,8 +72,8 @@ type Node struct {
 	client api.EdgyClient
 }
 
-func (this Node) ConsumeTopic(topic string, continuous bool) (Consumer, error) {
-	return NewTopicPartitionConsumer(this.IP, topic, this.Partition, continuous)
+func (this Node) ConsumeTopic(topic string, offset Offset, continuous bool) (Consumer, error) {
+	return NewTopicPartitionConsumer(this.IP, topic, int(this.Partition), offset, continuous)
 }
 
 func NewCluster() ClusterBuilder {

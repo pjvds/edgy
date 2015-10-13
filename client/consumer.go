@@ -10,19 +10,25 @@ import (
 	"google.golang.org/grpc"
 )
 
+type IncomingMessage struct {
+	Topic     string
+	Partition int
+	Message   []byte
+}
+
 type Consumer interface {
-	Messages() <-chan []byte
+	Messages() <-chan IncomingMessage
 	Close() error
 }
 
 type MergeConsumer struct {
 	consumers []Consumer
 
-	messages chan []byte
+	messages chan IncomingMessage
 }
 
 func MergeConsumers(consumers ...Consumer) *MergeConsumer {
-	messages := make(chan []byte)
+	messages := make(chan IncomingMessage)
 	var work sync.WaitGroup
 
 	for _, consumer := range consumers {
@@ -47,7 +53,7 @@ func MergeConsumers(consumers ...Consumer) *MergeConsumer {
 	}
 }
 
-func (this *MergeConsumer) Messages() <-chan []byte {
+func (this *MergeConsumer) Messages() <-chan IncomingMessage {
 	return this.messages
 }
 
@@ -64,9 +70,10 @@ type TopicPartitionConsumer struct {
 
 	logger    tidy.Logger
 	topic     string
-	partition int32
+	partition int
+	offset    Offset
 	client    api.EdgyClient
-	messages  chan []byte
+	messages  chan IncomingMessage
 
 	dispatch  chan *storage.MessageSet
 	close     chan struct{}
@@ -78,11 +85,11 @@ func (this *TopicPartitionConsumer) Close() error {
 	return nil
 }
 
-func (this *TopicPartitionConsumer) Messages() <-chan []byte {
+func (this *TopicPartitionConsumer) Messages() <-chan IncomingMessage {
 	return this.messages
 }
 
-func NewTopicPartitionConsumer(host string, topic string, partition int32, continuous bool) (*TopicPartitionConsumer, error) {
+func NewTopicPartitionConsumer(host string, topic string, partition int, offset Offset, continuous bool) (*TopicPartitionConsumer, error) {
 	connection, err := grpc.Dial(host, grpc.WithInsecure())
 	if err != nil {
 		return nil, err
@@ -98,11 +105,12 @@ func NewTopicPartitionConsumer(host string, topic string, partition int32, conti
 	consumer := &TopicPartitionConsumer{
 		host:       host,
 		continuous: continuous,
+		offset:     offset,
 		logger:     tidy.GetLogger(),
 		client:     client,
 		topic:      topic,
 		partition:  partition,
-		messages:   make(chan []byte),
+		messages:   make(chan IncomingMessage),
 		dispatch:   make(chan *storage.MessageSet),
 		close:      make(chan struct{}),
 	}
@@ -118,13 +126,16 @@ func (this *TopicPartitionConsumer) doDispatching() {
 
 	for messages := range this.dispatch {
 		for _, message := range messages.Messages() {
-			this.messages <- message
+			this.messages <- IncomingMessage{
+				Topic:     this.topic,
+				Partition: this.partition,
+				Message:   message,
+			}
 		}
 	}
 }
 
 func (this *TopicPartitionConsumer) doReading() {
-	offset := new(api.OffsetData)
 	//delay := backoff.Exp(time.Millisecond, 1*time.Second)
 
 	defer close(this.dispatch)
@@ -136,7 +147,11 @@ func (this *TopicPartitionConsumer) doReading() {
 	})
 	logger.Debug("reading started")
 
-	replies, err := this.client.Read(context.Background(), &api.ReadRequest{Topic: this.topic, Partition: this.partition, Offset: offset})
+	replies, err := this.client.Read(context.Background(), &api.ReadRequest{
+		Topic:     this.topic,
+		Partition: int32(this.partition),
+		Offset:    this.offset.toOffsetData(),
+	})
 
 	if err != nil {
 		logger.WithError(err).Error("read request failed")
@@ -151,15 +166,15 @@ func (this *TopicPartitionConsumer) doReading() {
 		}
 
 		if len(reply.Messages) == 0 {
-			logger.With("offset", offset).Warn("EOF")
+			logger.With("offset", this.offset).Warn("EOF")
 			return
 		}
 
 		if this.logger.IsDebug() {
-			logger.With("offset", offset).Debug("reply received")
+			logger.With("offset", this.offset).Debug("reply received")
 		}
 
 		this.dispatch <- storage.NewMessageSetFromBuffer(reply.Messages)
-		offset = reply.Offset
+		this.offset = offsetFromOffsetData(reply.Offset)
 	}
 }
