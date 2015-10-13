@@ -153,6 +153,7 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 
 		untypedReply, err := context.Wait()
 		if err != nil {
+			// TODO: when request is continuous, delay and retry.
 			if err == io.EOF {
 				this.logger.Withs(tidy.Fields{
 					"topic":     request.Topic,
