@@ -36,6 +36,7 @@ message ReadRequest {
 	int32 partition = 2;
 
 	OffsetData offset = 3;
+	bool continuous = 4;
 }
 
 message AppendReply {

@@ -84,9 +84,10 @@ func (m *ReadReply) GetOffset() *OffsetData {
 }
 
 type ReadRequest struct {
-	Topic     string      `protobuf:"bytes,1,opt,name=topic" json:"topic,omitempty"`
-	Partition int32       `protobuf:"varint,2,opt,name=partition" json:"partition,omitempty"`
-	Offset    *OffsetData `protobuf:"bytes,3,opt,name=offset" json:"offset,omitempty"`
+	Topic      string      `protobuf:"bytes,1,opt,name=topic" json:"topic,omitempty"`
+	Partition  int32       `protobuf:"varint,2,opt,name=partition" json:"partition,omitempty"`
+	Offset     *OffsetData `protobuf:"bytes,3,opt,name=offset" json:"offset,omitempty"`
+	Continuous bool        `protobuf:"varint,4,opt,name=continuous" json:"continuous,omitempty"`
 }
 
 func (m *ReadRequest) Reset()         { *m = ReadRequest{} }
