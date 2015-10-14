@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/OneOfOne/xxhash"
 	"github.com/codegangsta/cli"
 	"github.com/pjvds/edgy/client"
 	"github.com/pjvds/edgy/storage"
@@ -44,6 +45,71 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "edgy command line interface"
 	app.Commands = []cli.Command{
+		cli.Command{
+			Name: "publish",
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "hosts",
+					Value: "localhost:5050",
+				},
+				cli.StringFlag{
+					Name:  "topic",
+					Value: "",
+				},
+				cli.StringFlag{
+					Name:  "key",
+					Value: "",
+				},
+				cli.StringFlag{
+					Name:  "payload",
+					Value: "",
+				},
+			},
+			Action: func(ctx *cli.Context) {
+				hosts := ctx.String("hosts")
+				topic := ctx.String("topic")
+				key := ctx.String("key")
+				payload := []byte(ctx.String("payload"))
+
+				if len(hosts) == 0 {
+					fmt.Fprintf(os.Stderr, "missing hosts")
+					return
+				}
+				if len(topic) == 0 {
+					fmt.Fprintf(os.Stderr, "missing topic")
+					return
+				}
+				if len(key) == 0 {
+					fmt.Fprintf(os.Stderr, "missing partition key")
+					return
+				}
+				if len(payload) == 0 {
+					fmt.Fprintf(os.Stderr, "missing payload")
+					return
+				}
+
+				builder := client.NewCluster()
+
+				for p, host := range strings.Split(hosts, ",") {
+					builder = builder.Node(host, host, int32(p))
+				}
+
+				cluster := builder.MustBuild()
+
+				producer, err := client.NewProducer(cluster, client.ProducerConfig{
+					QueueTime: 0,
+					QueueSize: 1,
+				})
+				if err != nil {
+					println("failed to create producer: " + err.Error())
+					return
+				}
+
+				if err := producer.Append(topic, int(xxhash.Checksum32([]byte(key))), payload).Wait(); err != nil {
+					println("failed: " + err.Error())
+				}
+			},
+		},
 		cli.Command{
 			Name: "writebench",
 			Flags: []cli.Flag{
@@ -162,7 +228,7 @@ func main() {
 				startedAt := time.Now()
 
 				for message := range consumer.Messages() {
-					value := string(message[storage.HEADER_LENGTH:])
+					value := string(message.Message[storage.HEADER_LENGTH:])
 
 					if !devnull {
 						fmt.Fprintln(os.Stdout, value)
