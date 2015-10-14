@@ -11,9 +11,17 @@ import (
 )
 
 type IncomingMessage struct {
+	// The offset, or closest offset, of the message.
+	MessageId uint64
+	Offset    Offset
 	Topic     string
 	Partition int
 	Message   []byte
+}
+
+type incomingBatch struct {
+	Offset   Offset
+	Messages *storage.MessageSet
 }
 
 type Consumer interface {
@@ -75,7 +83,7 @@ type TopicPartitionConsumer struct {
 	client    api.EdgyClient
 	messages  chan IncomingMessage
 
-	dispatch  chan *storage.MessageSet
+	dispatch  chan incomingBatch
 	close     chan struct{}
 	closeOnce sync.Once
 }
@@ -111,7 +119,7 @@ func NewTopicPartitionConsumer(host string, topic string, partition int, offset 
 		topic:      topic,
 		partition:  partition,
 		messages:   make(chan IncomingMessage),
-		dispatch:   make(chan *storage.MessageSet),
+		dispatch:   make(chan incomingBatch),
 		close:      make(chan struct{}),
 	}
 
@@ -124,9 +132,13 @@ func NewTopicPartitionConsumer(host string, topic string, partition int, offset 
 func (this *TopicPartitionConsumer) doDispatching() {
 	defer close(this.messages)
 
-	for messages := range this.dispatch {
-		for _, message := range messages.Messages() {
+	for batch := range this.dispatch {
+		for index, message := range batch.Messages.Messages() {
+			entry := batch.Messages.Entry(index)
+
 			this.messages <- IncomingMessage{
+				MessageId: uint64(entry.Id),
+				Offset:    batch.Offset,
 				Topic:     this.topic,
 				Partition: this.partition,
 				Message:   message,
@@ -174,7 +186,11 @@ func (this *TopicPartitionConsumer) doReading() {
 			logger.With("offset", this.offset).Debug("reply received")
 		}
 
-		this.dispatch <- storage.NewMessageSetFromBuffer(reply.Messages)
+		this.dispatch <- incomingBatch{
+			Offset:   this.offset,
+			Messages: storage.NewMessageSetFromBuffer(reply.Messages),
+		}
+
 		this.offset = offsetFromOffsetData(reply.Offset)
 	}
 }
