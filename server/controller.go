@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pjvds/backoff"
 	"github.com/pjvds/edgy/api"
 	"github.com/pjvds/edgy/storage"
 	"github.com/pjvds/tidy"
@@ -128,6 +129,8 @@ func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) 
 }
 
 func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServer) error {
+	delay := backoff.Exp(time.Millisecond, time.Second)
+
 	this.logger.Withs(tidy.Fields{
 		"topic":     request.Topic,
 		"partition": request.Partition,
@@ -159,7 +162,7 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 					"topic":     request.Topic,
 					"partition": request.Partition,
 					"offset":    tidy.Stringify(request.Offset),
-				}).WithError(err).Debug("read finished")
+				}).WithError(err).Debug("read eof")
 			} else {
 				this.logger.Withs(tidy.Fields{
 					"topic":     request.Topic,
@@ -167,16 +170,32 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 					"offset":    tidy.Stringify(request.Offset),
 				}).WithError(err).Error("read failed")
 			}
-			return err
+
+			if request.Continuous {
+				delay.Delay()
+				continue
+			} else {
+				return err
+			}
 		}
+
 		reply := untypedReply.(*api.ReadReply)
+		delay.Reset()
 
 		if len(reply.Messages) == 0 {
 			this.logger.With("partition", ref).WithError(io.EOF).Debug("read finished")
-			return io.EOF
+
+			// TODO: make sure this cannot happen, the reply should error EOF on no messages
+			if request.Continuous {
+				delay.Delay()
+				continue
+			} else {
+				return io.EOF
+			}
 		}
 
 		if err := stream.Send(reply); err != nil {
+			this.logger.WithError(err).Error("failed to send response to client stream")
 			return err
 		}
 
