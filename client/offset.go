@@ -1,6 +1,10 @@
 package client
 
-import "github.com/pjvds/edgy/api"
+import (
+	"fmt"
+
+	"github.com/pjvds/edgy/api"
+)
 
 type Offset struct {
 	MessageId uint64 `json:"message_id"`
@@ -16,6 +20,10 @@ func NewOffset(messageId uint64, position int64, segmentId uint64) Offset {
 		Position:  position,
 		SegmentId: segmentId,
 	}
+}
+
+func (this Offset) String() string {
+	return fmt.Sprintf("%v@%v/%v", this.MessageId, this.SegmentId, this.Position)
 }
 
 func (this Offset) toOffsetData() *api.OffsetData {
