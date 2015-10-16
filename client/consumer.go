@@ -141,7 +141,7 @@ func (this *TopicPartitionConsumer) doDispatching() {
 				Offset:    batch.Offset,
 				Topic:     this.topic,
 				Partition: this.partition,
-				Message:   message,
+				Message:   message[21:], // TODO: this should not be hard coded
 			}
 		}
 	}
