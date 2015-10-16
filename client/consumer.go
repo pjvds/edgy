@@ -160,9 +160,10 @@ func (this *TopicPartitionConsumer) doReading() {
 	logger.Debug("reading started")
 
 	replies, err := this.client.Read(context.Background(), &api.ReadRequest{
-		Topic:     this.topic,
-		Partition: int32(this.partition),
-		Offset:    this.offset.toOffsetData(),
+		Topic:      this.topic,
+		Partition:  int32(this.partition),
+		Offset:     this.offset.toOffsetData(),
+		Continuous: this.continuous,
 	})
 
 	if err != nil {
