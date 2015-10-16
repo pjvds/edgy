@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strings"
 	"sync"
@@ -69,7 +70,6 @@ func main() {
 				hosts := ctx.String("hosts")
 				topic := ctx.String("topic")
 				key := ctx.String("key")
-				payload := []byte(ctx.String("payload"))
 
 				if len(hosts) == 0 {
 					fmt.Fprintf(os.Stderr, "missing hosts")
@@ -83,6 +83,12 @@ func main() {
 					fmt.Fprintf(os.Stderr, "missing partition key")
 					return
 				}
+				payload, err := ioutil.ReadAll(os.Stdin)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "failed to read payload from stdin")
+					return
+				}
+
 				if len(payload) == 0 {
 					fmt.Fprintf(os.Stderr, "missing payload")
 					return
