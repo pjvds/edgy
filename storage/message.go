@@ -99,7 +99,7 @@ type MessageSet struct {
 	entries []SetEntry
 }
 
-func (this *MessageSet) Messages() []RawMessage {
+func (this MessageSet) Messages() []RawMessage {
 	result := make([]RawMessage, len(this.entries))
 
 	for index, entry := range this.entries {
