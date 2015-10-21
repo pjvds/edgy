@@ -118,7 +118,7 @@ func (this *Producer) senderLoop(topic string, partition int32, requests chan ap
 		timeout := time.After(this.config.QueueTime)
 
 	enqueue:
-		for index := 1; index < this.config.QueueSize; index++ {
+		for index := 0; index < this.config.QueueSize; index++ {
 			select {
 			case request = <-requests:
 				callbacks = append(callbacks, request.result)
