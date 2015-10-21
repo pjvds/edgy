@@ -191,9 +191,9 @@ func RegisterEdgyServer(s *grpc.Server, srv EdgyServer) {
 	s.RegisterService(&_Edgy_serviceDesc, srv)
 }
 
-func _Edgy_Append_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
+func _Edgy_Append_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
 	in := new(AppendRequest)
-	if err := codec.Unmarshal(buf, in); err != nil {
+	if err := dec(in); err != nil {
 		return nil, err
 	}
 	out, err := srv.(EdgyServer).Append(ctx, in)
@@ -224,9 +224,9 @@ func (x *edgyReadServer) Send(m *ReadReply) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func _Edgy_Ping_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
+func _Edgy_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
 	in := new(PingRequest)
-	if err := codec.Unmarshal(buf, in); err != nil {
+	if err := dec(in); err != nil {
 		return nil, err
 	}
 	out, err := srv.(EdgyServer).Ping(ctx, in)
