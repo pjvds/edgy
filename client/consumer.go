@@ -11,8 +11,9 @@ import (
 )
 
 type IncomingMessage struct {
-	// The offset, or closest offset, of the message.
 	MessageId uint64
+
+	// The offset, or closest offset, of the message.
 	Offset    Offset
 	Topic     string
 	Partition int
