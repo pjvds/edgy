@@ -144,9 +144,9 @@ func main() {
 					Name:  "num",
 					Value: 1e6,
 				},
-				cli.StringFlag{
-					Name:  "payload",
-					Value: "0riivLY4HhlSG6VH53BxC2T7f5RlfsfAklLX36pIx7oVfy2bHiVQCzDjrQ6kr65dRxHxWfEdIjli0dAJSOk3XJMMm9UVv9GXFLJUT8NLUzKV04a4KFdl8rl3ZHTnKrDtSxKDRAkCMEXtbkxmvIH4jkYCc8Fz1dqebjOJm87CJDmKsp0rYlrTrdyPnhM5gmXaWnj3wb57i2BxEMuP9bh8GAqSjYGcInpngcUKdrByjBsuMDQJOanq2tVHvQoFvHfkxDzo2MVHEj1LYuF8n4eisF0Tx0Ocp5w1mIwX36MTBIrm",
+				cli.IntFlag{
+					Name:  "size",
+					Value: 50,
 				},
 				cli.IntFlag{
 					Name:  "queue.size",
@@ -161,7 +161,7 @@ func main() {
 				hosts := ctx.String("hosts")
 				num := ctx.Int("num")
 				topic := ctx.String("topic")
-				payload := []byte(ctx.String("payload"))
+				size := ctx.Int("size")
 				queueSize := ctx.Int("queue.size")
 				queueTime := ctx.Duration("queue.time")
 
@@ -186,6 +186,7 @@ func main() {
 				work.Add(num)
 
 				started := time.Now()
+				payload := randombytes.Make(size)
 
 				for n := 0; n < num; n++ {
 					result := producer.Append(topic, n, payload)
@@ -198,7 +199,7 @@ func main() {
 
 				elapsed := time.Now().Sub(started)
 				msgsPerSecond := float64(num) / elapsed.Seconds()
-				totalMb := float64(num*len(payload)) / (1e6)
+				totalMb := float64(num*size) / (1e6)
 
 				fmt.Printf("run time: %v\n", elapsed)
 				fmt.Printf("total msgs: %v\n", num)
@@ -247,14 +248,16 @@ func main() {
 				startedAt := time.Now()
 
 				for message := range consumer.Messages() {
-					value := string(message.Message[storage.HEADER_LENGTH:])
 
 					if !devnull {
-						fmt.Fprintln(os.Stdout, value)
+						for _, rawMessage := range message.Messages.Messages() {
+							value := string(rawMessage[storage.HEADER_LENGTH:])
+							fmt.Fprintln(os.Stdout, value)
+						}
 					}
 
-					messageCounter++
-					byteCounter += int64(len(value))
+					messageCounter += int64(message.Messages.MessageCount())
+					byteCounter += message.Messages.DataLen64()
 				}
 
 				elapsed := time.Since(startedAt)
