@@ -71,6 +71,7 @@ func main() {
 				hosts := ctx.String("hosts")
 				topic := ctx.String("topic")
 				key := ctx.String("key")
+				payload := ctx.String("payload")
 
 				if len(hosts) == 0 {
 					fmt.Fprintf(os.Stderr, "missing hosts")
@@ -84,15 +85,23 @@ func main() {
 					fmt.Fprintf(os.Stderr, "missing partition key")
 					return
 				}
-				payload, err := ioutil.ReadAll(os.Stdin)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "failed to read payload from stdin")
-					return
-				}
-
 				if len(payload) == 0 {
 					fmt.Fprintf(os.Stderr, "missing payload")
 					return
+				}
+
+				if payload == "-" {
+					stdin, err := ioutil.ReadAll(os.Stdin)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "failed to read payload from stdin")
+						return
+					}
+					if len(stdin) == 0 {
+						fmt.Fprintf(os.Stderr, "empty payload from stdin")
+						return
+
+					}
+					payload = string(stdin)
 				}
 
 				builder := client.NewCluster()
@@ -112,7 +121,7 @@ func main() {
 					return
 				}
 
-				if err := producer.Append(topic, int(xxhash.Checksum32([]byte(key))), payload).Wait(); err != nil {
+				if err := producer.Append(topic, int(xxhash.Checksum32([]byte(key))), []byte(payload)).Wait(); err != nil {
 					println("failed: " + err.Error())
 				}
 			},
