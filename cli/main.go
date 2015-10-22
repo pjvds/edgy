@@ -13,6 +13,8 @@ import (
 	"github.com/codegangsta/cli"
 	"github.com/pjvds/edgy/client"
 	"github.com/pjvds/edgy/storage"
+	"github.com/pjvds/randombytes"
+	"github.com/pjvds/tidy"
 )
 
 func merge(all ...chan []byte) <-chan []byte {
@@ -42,6 +44,7 @@ var defaultHosts = cli.StringSlice([]string{"localhost:5050"})
 
 func main() {
 	flag.Parse()
+	tidy.Configure().LogFromLevelSpecifiedByEnvironment().To(tidy.Console).MustBuildDefault()
 
 	app := cli.NewApp()
 	app.Name = "edgy command line interface"
