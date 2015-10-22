@@ -25,8 +25,8 @@ func (this Cluster) Node(partition int) Node {
 	return this.nodes[partition]
 }
 
-func (this Cluster) Consume(topics ...string) (Consumer, error) {
-	consumers := make([]Consumer, 0, len(this.nodes)*len(topics))
+func (this Cluster) Consume(topics ...string) (BatchConsumer, error) {
+	consumers := make([]BatchConsumer, 0, len(this.nodes)*len(topics))
 
 	for _, node := range this.nodes {
 		for _, topic := range topics {
@@ -72,7 +72,7 @@ type Node struct {
 	client api.EdgyClient
 }
 
-func (this Node) ConsumeTopic(topic string, offset Offset, continuous bool) (Consumer, error) {
+func (this Node) ConsumeTopic(topic string, offset Offset, continuous bool) (BatchConsumer, error) {
 	return NewTopicPartitionConsumer(this.IP, topic, int(this.Partition), offset, continuous)
 }
 

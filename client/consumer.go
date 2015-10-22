@@ -20,30 +20,30 @@ type IncomingMessage struct {
 	Message   []byte
 }
 
-type incomingBatch struct {
+type IncomingBatch struct {
 	Offset   Offset
 	Messages *storage.MessageSet
 }
 
-type Consumer interface {
-	Messages() <-chan IncomingMessage
+type BatchConsumer interface {
+	Messages() <-chan IncomingBatch
 	Close() error
 }
 
-type MergeConsumer struct {
-	consumers []Consumer
+type MergeBatchConsumer struct {
+	consumers []BatchConsumer
 
-	messages chan IncomingMessage
+	messages chan IncomingBatch
 }
 
-func MergeConsumers(consumers ...Consumer) *MergeConsumer {
-	messages := make(chan IncomingMessage)
+func MergeConsumers(consumers ...BatchConsumer) *MergeBatchConsumer {
+	messages := make(chan IncomingBatch)
 	var work sync.WaitGroup
 
 	for _, consumer := range consumers {
 		work.Add(1)
 
-		go func(consumer Consumer) {
+		go func(consumer BatchConsumer) {
 			defer work.Done()
 			for value := range consumer.Messages() {
 				messages <- value
@@ -56,17 +56,17 @@ func MergeConsumers(consumers ...Consumer) *MergeConsumer {
 		close(messages)
 	}()
 
-	return &MergeConsumer{
+	return &MergeBatchConsumer{
 		consumers: consumers,
 		messages:  messages,
 	}
 }
 
-func (this *MergeConsumer) Messages() <-chan IncomingMessage {
+func (this *MergeBatchConsumer) Messages() <-chan IncomingBatch {
 	return this.messages
 }
 
-func (this *MergeConsumer) Close() error {
+func (this *MergeBatchConsumer) Close() error {
 	for _, consumer := range this.consumers {
 		consumer.Close()
 	}
@@ -82,9 +82,8 @@ type TopicPartitionConsumer struct {
 	partition int
 	offset    Offset
 	client    api.EdgyClient
-	messages  chan IncomingMessage
+	messages  chan IncomingBatch
 
-	dispatch  chan incomingBatch
 	close     chan struct{}
 	closeOnce sync.Once
 }
@@ -94,7 +93,7 @@ func (this *TopicPartitionConsumer) Close() error {
 	return nil
 }
 
-func (this *TopicPartitionConsumer) Messages() <-chan IncomingMessage {
+func (this *TopicPartitionConsumer) Messages() <-chan IncomingBatch {
 	return this.messages
 }
 
@@ -119,39 +118,39 @@ func NewTopicPartitionConsumer(host string, topic string, partition int, offset 
 		client:     client,
 		topic:      topic,
 		partition:  partition,
-		messages:   make(chan IncomingMessage),
-		dispatch:   make(chan incomingBatch),
+		messages:   make(chan IncomingBatch),
 		close:      make(chan struct{}),
 	}
 
 	go consumer.doReading()
-	go consumer.doDispatching()
+	//go consumer.doDispatching()
 
 	return consumer, nil
 }
 
-func (this *TopicPartitionConsumer) doDispatching() {
-	defer close(this.messages)
-
-	for batch := range this.dispatch {
-		for index, message := range batch.Messages.Messages() {
-			entry := batch.Messages.Entry(index)
-
-			this.messages <- IncomingMessage{
-				MessageId: uint64(entry.Id),
-				Offset:    batch.Offset,
-				Topic:     this.topic,
-				Partition: this.partition,
-				Message:   message[21:], // TODO: this should not be hard coded
-			}
-		}
-	}
-}
+// func (this *TopicPartitionConsumer) doDispatching() {
+// 	defer close(this.messages)
+//
+// 	for batch := range this.dispatch {
+// 		for index, message := range batch.Messages.Messages() {
+// 			entry := batch.Messages.Entry(index)
+//
+// 			this.messages <- IncomingMessage{
+// 				MessageId: uint64(entry.Id),
+// 				Offset:    batch.Offset,
+// 				Topic:     this.topic,
+// 				Partition: this.partition,
+// 				Message:   message[21:], // TODO: this should not be hard coded
+// 			}
+// 		}
+// 	}
+// }
 
 func (this *TopicPartitionConsumer) doReading() {
 	//delay := backoff.Exp(time.Millisecond, 1*time.Second)
 
-	defer close(this.dispatch)
+	//defer close(this.dispatch)
+	defer close(this.messages)
 
 	logger := tidy.GetLogger().Withs(tidy.Fields{
 		"host":      this.host,
@@ -188,7 +187,7 @@ func (this *TopicPartitionConsumer) doReading() {
 			logger.With("offset", this.offset).Debug("reply received")
 		}
 
-		this.dispatch <- incomingBatch{
+		this.messages <- IncomingBatch{
 			Offset:   this.offset,
 			Messages: storage.NewMessageSetFromBuffer(reply.Messages),
 		}
