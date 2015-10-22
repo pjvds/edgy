@@ -50,8 +50,9 @@ func main() {
 			Name: "publish",
 			Flags: []cli.Flag{
 				cli.StringFlag{
-					Name:  "hosts",
-					Value: "localhost:5050",
+					Name:   "hosts",
+					Value:  "localhost:5050",
+					EnvVar: "EDGY_HOSTS",
 				},
 				cli.StringFlag{
 					Name:  "topic",
