@@ -17,20 +17,25 @@ type Server struct {
 }
 
 func ListenAndServe(address string, directory string, registry metrics.Registry) error {
-	logger := tidy.GetLogger()
+	logger := tidy.GetLogger().With("address", address)
 	server := &Server{
 		registry:   registry,
 		logger:     logger,
 		controller: NewController(directory, registry),
 	}
 
-	logger.With("address", address).Debug("creating listeners")
+	logger.Debug("creating listeners")
 	listener, err := net.Listen("tcp", address)
 
 	if err != nil {
 		logger.With("address", address).WithError(err).Warn("listening failed")
 		return err
 	}
+
+	logger.Withs(tidy.Fields{
+		"address":   address,
+		"directory": directory,
+	}).Info("serving")
 
 	return server.Serve(listener)
 }
