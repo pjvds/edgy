@@ -1,6 +1,8 @@
 package server
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"runtime"
 	"sync"
@@ -131,10 +133,18 @@ func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) 
 func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServer) error {
 	delay := backoff.Exp(time.Millisecond, time.Second)
 
+	if len(request.Topic) == 0 {
+		return errors.New("missing topic")
+	}
+	if request.Offset == nil {
+		return errors.New("missing offset")
+	}
+
 	this.logger.Withs(tidy.Fields{
-		"topic":     request.Topic,
-		"partition": request.Partition,
-		"offset":    tidy.Stringify(request.Offset),
+		"topic":         request.Topic,
+		"partition":     request.Partition,
+		"offset":        tidy.Stringify(request.Offset),
+		"offset_string": fmt.Sprintf("%v@%v/%v", request.Offset.MessageId, request.Offset.SegmentId, request.Offset.EndPosition),
 	}).Debug("incoming read request")
 
 	ref := storage.PartitionRef{
