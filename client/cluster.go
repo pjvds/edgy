@@ -3,6 +3,8 @@ package client
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -80,6 +82,21 @@ func NewCluster() ClusterBuilder {
 	return ClusterBuilder{
 		nodes: make([]Node, 0, 10),
 	}
+}
+
+// Adds all nodes found in EDGY_HOSTS environment variable. It errors when
+// the variable is missing or empty.
+func (this ClusterBuilder) FromEnvironment() (ClusterBuilder, error) {
+	hosts := os.Getenv("EDGY_HOSTS")
+	if len(hosts) == 0 {
+		return this, fmt.Errorf("missing EDGY_HOSTS enviroment variable")
+	}
+
+	for partition, host := range strings.Split(hosts, ",") {
+		this = this.Node(host, host, int32(partition))
+	}
+
+	return this, nil
 }
 
 func (this Cluster) Partitions() int {
