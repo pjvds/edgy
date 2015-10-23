@@ -139,6 +139,11 @@ func newPartition(ref PartitionRef, config PartitionConfig, directory string) *P
 }
 
 func OpenPartition(ref PartitionRef, config PartitionConfig, directory string) (*Partition, error) {
+	logger := logger.Withs(tidy.Fields{
+		"partition": ref.String(),
+	})
+	logger.With("directory", directory).Debug("opening partition")
+
 	files, err := ioutil.ReadDir(directory)
 	if err != nil {
 		return nil, err
@@ -159,10 +164,15 @@ func OpenPartition(ref PartitionRef, config PartitionConfig, directory string) (
 	}
 
 	sort.Strings(segmentFiles)
+	logger.With("segment_file_count", len(segmentFiles)).Debug("segment files found")
 
 	lastIndex := len(segmentFiles) - 1
 	for index, filename := range segmentFiles {
 		segmentId := ReadSegmentIdFromFilename(filename)
+		logger.Withs(tidy.Fields{
+			"segment_id": segmentId.String(),
+			"filename":   filename,
+		}).Debug("reading segment file")
 
 		file, err := os.OpenFile(filename, os.O_RDWR, 0777)
 		if err != nil {
@@ -211,7 +221,7 @@ func OpenPartition(ref PartitionRef, config PartitionConfig, directory string) (
 		"lastMessageId":       partition.lastMessageId,
 		"lastSegmentId":       partition.segments.Last().ref.Segment,
 		"lastMessagePosition": partition.segments.Last().position,
-	}).Debug("opened partition")
+	}).Info("opened partition")
 
 	return partition, nil
 }
@@ -351,30 +361,26 @@ type ReadResult struct {
 }
 
 func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (ReadResult, error) {
-
-	next := offset
-	if next.IsEmpty() {
-		next.MessageId = MessageId(1)
-		next.SegmentId = SegmentId(1)
-		next.Position = 0
-	}
-	this.logger.With("offset", offset).With("next", next).Info("read request")
-
-	if this.closed {
-		this.logger.WithError(ErrClosed).Debug("ReadFrom called while closed")
-		return ReadResult{Next: next}, ErrClosed
-	}
-
 	this.logger.Withs(tidy.Fields{
 		"offset": tidy.Stringify(offset),
 	}).Debug("handling ReadFrom")
 
+	if offset.IsEmpty() {
+		offset.MessageId = MessageId(1)
+		offset.SegmentId = SegmentId(1)
+		offset.Position = 0
+	}
+
+	if this.closed {
+		this.logger.WithError(ErrClosed).Debug("ReadFrom called while closed")
+		return ReadResult{Next: offset}, ErrClosed
+	}
 	// TODO: return empty set when offset is beyond lastMessageId of the writer.
 
 	buffer := make([]byte, eagerFetchUntilMaxBytes)
 
 	for {
-		segment, ok := this.segments.Get(next.SegmentId)
+		segment, ok := this.segments.Get(offset.SegmentId)
 		if !ok {
 			err := errors.New("segment not found")
 
@@ -385,7 +391,7 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (Rea
 			return ReadResult{}, err
 		}
 
-		read, err := segment.ReadAt(buffer, next.Position)
+		read, err := segment.ReadAt(buffer, offset.Position)
 
 		if err != nil && err != io.EOF {
 			logger.WithError(err).Withs(tidy.Fields{
@@ -402,14 +408,14 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (Rea
 				"segment":       segment.ref,
 				"buffer_length": len(buffer),
 				"bytes_read":    read,
-				"position":      next.Position,
+				"position":      offset.Position,
 			}).Error("unexpected EOF")
 
 			return ReadResult{}, err
 		}
 
 		if buffer[0] == END_OF_SEGMENT {
-			next = Offset{
+			offset = Offset{
 				MessageId: offset.MessageId,
 				SegmentId: SegmentId(offset.MessageId),
 				Position:  0,
@@ -421,7 +427,7 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (Rea
 			if buffer[0] == 0x00 {
 				return ReadResult{
 					Messages: make([]byte, 0),
-					Next:     next,
+					Next:     offset,
 				}, nil
 			}
 
@@ -467,10 +473,9 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (Rea
 				break
 			}
 
-			if header.MessageId != next.MessageId {
+			if header.MessageId != offset.MessageId {
 				this.logger.Withs(tidy.Fields{
 					"offset":              offset,
-					"next":                next,
 					"expected_message_id": offset.MessageId,
 					"actual_message_id":   header.MessageId,
 					"position":            position,
@@ -485,22 +490,17 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (Rea
 				break
 			}
 
-			next.MessageId = header.MessageId.Next()
-			next.Position += int64(HEADER_LENGTH + header.ContentLength)
+			offset.MessageId = header.MessageId.Next()
+			offset.Position += int64(HEADER_LENGTH + header.ContentLength)
 
 			position += int(HEADER_LENGTH + header.ContentLength)
 			messageCount++
 		}
 
-		this.logger.Withs(tidy.Fields{
-			"offset": offset,
-			"next":   next,
-		}).Info("read success")
-
 		return ReadResult{
 			MessageCount: messageCount,
 			Messages:     buffer[0:position],
-			Next:         next,
+			Next:         offset,
 		}, nil
 	}
 }
