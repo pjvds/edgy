@@ -108,6 +108,11 @@ func (this MessageSet) Messages() []RawMessage {
 
 	return result
 }
+
+func (this *MessageSet) Entry(n int) SetEntry {
+	return this.entries[n]
+}
+
 func (this *MessageSet) Buffer() []byte {
 	if last, ok := this.LastEntry(); ok {
 		return this.buffer[0 : last.Offset+last.Length]
