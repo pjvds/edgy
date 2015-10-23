@@ -10,6 +10,56 @@ import (
 	"google.golang.org/grpc"
 )
 
+type MessageConsumer interface {
+	Messages() <-chan IncomingMessage
+	Close() error
+}
+
+type messageConsumer struct {
+	closed        chan struct{}
+	messages      chan IncomingMessage
+	batchConsumer BatchConsumer
+}
+
+func NewMessageConsumer(batchConsumer BatchConsumer) MessageConsumer {
+	consumer := &messageConsumer{
+		closed:        make(chan struct{}),
+		messages:      make(chan IncomingMessage),
+		batchConsumer: batchConsumer,
+	}
+	go consumer.do()
+
+	return consumer
+}
+
+func (this *messageConsumer) do() {
+	defer close(this.messages)
+	defer close(this.closed)
+
+	for batch := range this.batchConsumer.Messages() {
+		for _, message := range batch.Messages.Messages() {
+			this.messages <- IncomingMessage{
+				Topic:     "TODO_SET_TOPIC", // TODO: set topic
+				Partition: 0,                // TODO: set partition
+				Message:   message[21:],     // TODO: don't hardcode message content offset
+			}
+		}
+	}
+}
+
+func (this *messageConsumer) Messages() <-chan IncomingMessage {
+	return this.messages
+}
+
+func (this *messageConsumer) Close() error {
+	if err := this.batchConsumer.Close(); err != nil {
+		return err
+	}
+
+	<-this.closed
+	return nil
+}
+
 type IncomingMessage struct {
 	MessageId uint64
 
