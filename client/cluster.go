@@ -84,12 +84,11 @@ func NewCluster() ClusterBuilder {
 	}
 }
 
-// Adds all nodes found in EDGY_HOSTS environment variable. It errors when
+// Adds all nodes found in hosts. It errors when
 // the variable is missing or empty.
-func (this ClusterBuilder) FromEnvironment() (ClusterBuilder, error) {
-	hosts := os.Getenv("EDGY_HOSTS")
+func (this ClusterBuilder) FromHosts(hosts string) (ClusterBuilder, error) {
 	if len(hosts) == 0 {
-		return this, fmt.Errorf("missing EDGY_HOSTS enviroment variable")
+		return this, fmt.Errorf("hosts cannot be empty")
 	}
 
 	for partition, host := range strings.Split(hosts, ",") {
@@ -97,6 +96,13 @@ func (this ClusterBuilder) FromEnvironment() (ClusterBuilder, error) {
 	}
 
 	return this, nil
+}
+
+// Adds all nodes found in EDGY_HOSTS environment variable. It errors when
+// the variable is missing or empty.
+func (this ClusterBuilder) FromEnvironment() (ClusterBuilder, error) {
+	hosts := os.Getenv("EDGY_HOSTS")
+	return this.FromHosts(hosts)
 }
 
 func (this Cluster) Partitions() int {
