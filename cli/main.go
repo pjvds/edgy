@@ -137,8 +137,9 @@ func main() {
 			Name: "writebench",
 			Flags: []cli.Flag{
 				cli.StringFlag{
-					Name:  "hosts",
-					Value: "localhost:5050",
+					Name:   "hosts",
+					Value:  "localhost:5050",
+					EnvVar: "EDGY_HOSTS",
 				},
 				cli.StringFlag{
 					Name:  "topic",
@@ -169,13 +170,17 @@ func main() {
 				queueSize := ctx.Int("queue.size")
 				queueTime := ctx.Duration("queue.time")
 
-				builder := client.NewCluster()
-
-				for p, host := range strings.Split(hosts, ",") {
-					builder = builder.Node(host, host, int32(p))
+				builder, err := client.NewCluster().FromHosts(hosts)
+				if err != nil {
+					fmt.Printf("cannot build cluster: %v\n", err.Error())
+					return
 				}
 
-				cluster := builder.MustBuild()
+				cluster, err := builder.Build()
+				if err != nil {
+					fmt.Printf("cannot build cluster: %v\n", err.Error())
+					return
+				}
 
 				producer, err := client.NewProducer(cluster, client.ProducerConfig{
 					QueueTime: queueTime,
