@@ -107,13 +107,17 @@ func main() {
 					payload = string(stdin)
 				}
 
-				builder := client.NewCluster()
-
-				for p, host := range strings.Split(hosts, ",") {
-					builder = builder.Node(host, host, int32(p))
+				builder, err := client.NewCluster().FromHosts(hosts)
+				if err != nil {
+					fmt.Printf("cannot build cluster: %v\n", err.Error())
+					return
 				}
 
-				cluster := builder.MustBuild()
+				cluster, err := builder.Build()
+				if err != nil {
+					fmt.Printf("cannot build cluster: %v\n", err.Error())
+					return
+				}
 
 				producer, err := client.NewProducer(cluster, client.ProducerConfig{
 					QueueTime: 0,
