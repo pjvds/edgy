@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
 	"github.com/pjvds/edgy/api"
@@ -152,7 +151,7 @@ func (this ClusterBuilder) Build() (Cluster, error) {
 		if node, ok := nodes[p]; !ok {
 			return cluster, fmt.Errorf("missing partition %v", p)
 		} else {
-			logger.With("host", node.IP).Debug("connecting to host")
+			logger.With("host", node.IP).Debug("adding node to cluster")
 
 			connection, err := grpc.Dial(node.IP, grpc.WithInsecure())
 			if err != nil {
@@ -161,11 +160,6 @@ func (this ClusterBuilder) Build() (Cluster, error) {
 			}
 
 			client := api.NewEdgyClient(connection)
-			if _, err := client.Ping(context.Background(), &api.PingRequest{}); err != nil {
-				// TODO: close connections
-				return cluster, err
-			}
-			logger.With("host", node.IP).Debug("connected to host")
 
 			node.client = client
 			cluster.nodes[p] = node
