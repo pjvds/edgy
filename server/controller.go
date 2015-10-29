@@ -162,7 +162,13 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 
 	for {
 		context := NewRequestContext(partition, request)
-		this.requests <- context
+		select {
+		case this.requests <- context:
+		case <-stream.Context().Done():
+			err := stream.Context().Err()
+			this.logger.WithError(err).Warn("unexpected context done signal")
+			return err
+		}
 
 		untypedReply, err := context.Wait()
 		if err != nil {
@@ -182,8 +188,14 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 			}
 
 			if request.Continuous {
-				delay.Delay()
-				continue
+				select {
+				case <-delay.DelayC():
+					continue
+				case <-stream.Context().Done():
+					err := stream.Context().Err()
+					this.logger.WithError(err).Warn("unexpected context done signal")
+					return err
+				}
 			} else {
 				return err
 			}
