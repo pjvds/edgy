@@ -234,11 +234,15 @@ func main() {
 				cli.BoolFlag{
 					Name: "devnull",
 				},
+				cli.BoolFlag{
+					Name: "continuous",
+				},
 			},
 			Action: func(ctx *cli.Context) {
 				hosts := ctx.String("hosts")
 				topics := ctx.String("topics")
 				devnull := ctx.Bool("devnull")
+				continuous := ctx.Bool("continuous")
 
 				builder, err := client.NewCluster().FromHosts(hosts)
 				if err != nil {
@@ -251,8 +255,9 @@ func main() {
 					fmt.Printf("cannot build cluster: %v\n", err.Error())
 					return
 				}
+				defer cluster.Close()
 
-				consumer, err := cluster.Consume(strings.Split(topics, ",")...)
+				consumer, err := cluster.Consume(continuous, strings.Split(topics, ",")...)
 				if err != nil {
 					println(err)
 					return
