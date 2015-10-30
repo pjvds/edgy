@@ -23,7 +23,6 @@ type messageConsumer struct {
 
 func NewMessageConsumer(batchConsumer BatchConsumer) MessageConsumer {
 	consumer := &messageConsumer{
-		closed:        make(chan struct{}),
 		messages:      make(chan IncomingMessage),
 		batchConsumer: batchConsumer,
 	}
@@ -33,8 +32,10 @@ func NewMessageConsumer(batchConsumer BatchConsumer) MessageConsumer {
 }
 
 func (this *messageConsumer) do() {
-	defer close(this.messages)
-	defer close(this.closed)
+	defer func() {
+		close(this.messages)
+		logger.Debug("message consumer done")
+	}()
 
 	for batch := range this.batchConsumer.Messages() {
 		for _, message := range batch.Messages.Messages() {
@@ -104,6 +105,7 @@ func MergeConsumers(consumers ...BatchConsumer) *MergeBatchConsumer {
 	go func() {
 		work.Wait()
 		close(messages)
+		logger.Debug("batch merge consumer done")
 	}()
 
 	return &MergeBatchConsumer{
@@ -200,7 +202,10 @@ func (this *TopicPartitionConsumer) doReading() {
 	//delay := backoff.Exp(time.Millisecond, 1*time.Second)
 
 	//defer close(this.dispatch)
-	defer close(this.messages)
+	defer func() {
+		close(this.messages)
+		logger.Debug("batch consumer done")
+	}()
 
 	logger := tidy.GetLogger().Withs(tidy.Fields{
 		"host":      this.host,
@@ -225,7 +230,7 @@ func (this *TopicPartitionConsumer) doReading() {
 		reply, err := replies.Recv()
 		if err != nil {
 			logger.WithError(err).Error("read request failed")
-			break
+			return
 		}
 
 		if len(reply.Messages) == 0 {

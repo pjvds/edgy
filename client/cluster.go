@@ -26,12 +26,12 @@ func (this Cluster) Node(partition int) Node {
 	return this.nodes[partition]
 }
 
-func (this Cluster) Consume(topics ...string) (BatchConsumer, error) {
+func (this Cluster) Consume(continuous bool, topics ...string) (BatchConsumer, error) {
 	consumers := make([]BatchConsumer, 0, len(this.nodes)*len(topics))
 
 	for _, node := range this.nodes {
 		for _, topic := range topics {
-			consumer, err := node.ConsumeTopic(topic, OffsetBeginning, false)
+			consumer, err := node.ConsumeTopic(topic, OffsetBeginning, continuous)
 
 			if err != nil {
 				// TODO: close consumers
