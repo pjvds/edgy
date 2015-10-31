@@ -34,15 +34,24 @@ func NewMessageConsumer(batchConsumer BatchConsumer) MessageConsumer {
 func (this *messageConsumer) do() {
 	defer func() {
 		close(this.messages)
+		this.consuming.Done()
 		logger.Debug("message consumer done")
 	}()
 
 	for batch := range this.batchConsumer.Messages() {
-		for _, message := range batch.Messages.Messages() {
+		for index, message := range batch.Messages.Messages() {
+			offset := batch.Offset
+
+			entry := batch.Messages.Entry(index)
 			this.messages <- IncomingMessage{
-				Topic:     "TODO_SET_TOPIC", // TODO: set topic
-				Partition: 0,                // TODO: set partition
-				Message:   message[21:],     // TODO: don't hardcode message content offset
+				Offset: Offset{
+					MessageId: uint64(entry.Id),
+					Position:  offset.Position + int64(entry.Offset),
+					SegmentId: offset.SegmentId,
+				},
+				Topic:     batch.Topic,
+				Partition: batch.Partition,
+				Message:   message[21:], // TODO: don't hardcode message content offset
 			}
 		}
 	}
