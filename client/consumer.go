@@ -72,8 +72,10 @@ type IncomingMessage struct {
 }
 
 type IncomingBatch struct {
-	Offset   Offset
-	Messages *storage.MessageSet
+	Offset    Offset
+	Messages  *storage.MessageSet
+	Topic     string
+	Partition int
 }
 
 type BatchConsumer interface {
@@ -243,8 +245,10 @@ func (this *TopicPartitionConsumer) doReading() {
 		}
 
 		this.messages <- IncomingBatch{
-			Offset:   this.offset,
-			Messages: storage.NewMessageSetFromBuffer(reply.Messages),
+			Topic:     this.topic,
+			Partition: this.partition,
+			Offset:    this.offset,
+			Messages:  storage.NewMessageSetFromBuffer(reply.Messages),
 		}
 
 		this.offset = offsetFromOffsetData(reply.Offset)
