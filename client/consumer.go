@@ -12,7 +12,6 @@ import (
 
 type MessageConsumer interface {
 	Messages() <-chan IncomingMessage
-	Close() error
 }
 
 type messageConsumer struct {
@@ -60,15 +59,6 @@ func (this *messageConsumer) Messages() <-chan IncomingMessage {
 	return this.messages
 }
 
-func (this *messageConsumer) Close() error {
-	if err := this.batchConsumer.Close(); err != nil {
-		return err
-	}
-
-	<-this.closed
-	return nil
-}
-
 type IncomingMessage struct {
 	MessageId uint64
 
@@ -88,7 +78,6 @@ type IncomingBatch struct {
 
 type BatchConsumer interface {
 	Messages() <-chan IncomingBatch
-	Close() error
 }
 
 type MergeBatchConsumer struct {
@@ -128,13 +117,6 @@ func (this *MergeBatchConsumer) Messages() <-chan IncomingBatch {
 	return this.messages
 }
 
-func (this *MergeBatchConsumer) Close() error {
-	for _, consumer := range this.consumers {
-		consumer.Close()
-	}
-	return nil
-}
-
 type TopicPartitionConsumer struct {
 	host       string
 	continuous bool
@@ -145,14 +127,6 @@ type TopicPartitionConsumer struct {
 	offset    Offset
 	client    api.EdgyClient
 	messages  chan IncomingBatch
-
-	close     chan struct{}
-	closeOnce sync.Once
-}
-
-func (this *TopicPartitionConsumer) Close() error {
-	// TODO: implement close
-	return nil
 }
 
 func (this *TopicPartitionConsumer) Messages() <-chan IncomingBatch {
@@ -181,7 +155,6 @@ func NewTopicPartitionConsumer(host string, topic string, partition int, offset 
 		topic:      topic,
 		partition:  partition,
 		messages:   make(chan IncomingBatch),
-		close:      make(chan struct{}),
 	}
 
 	go consumer.doReading()
