@@ -34,7 +34,6 @@ func NewMessageConsumer(batchConsumer BatchConsumer) MessageConsumer {
 func (this *messageConsumer) do() {
 	defer func() {
 		close(this.messages)
-		this.consuming.Done()
 		logger.Debug("message consumer done")
 	}()
 
