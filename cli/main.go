@@ -255,7 +255,6 @@ func main() {
 					fmt.Printf("cannot build cluster: %v\n", err.Error())
 					return
 				}
-				defer cluster.Close()
 
 				consumer, err := cluster.Consume(continuous, strings.Split(topics, ",")...)
 				if err != nil {
