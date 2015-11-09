@@ -208,8 +208,14 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 
 			// TODO: make sure this cannot happen, the reply should error EOF on no messages
 			if request.Continuous {
-				delay.Delay()
-				continue
+				select {
+				case <-delay.DelayC():
+					continue
+				case <-stream.Context().Done():
+					err := stream.Context().Err()
+					this.logger.WithError(err).Warn("unexpected context done signal")
+					return err
+				}
 			} else {
 				return io.EOF
 			}
