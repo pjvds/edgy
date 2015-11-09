@@ -202,7 +202,6 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 		}
 
 		reply := untypedReply.(*api.ReadReply)
-		delay.Reset()
 
 		if len(reply.Messages) == 0 {
 			this.logger.With("partition", ref).WithError(io.EOF).Debug("read finished")
@@ -221,6 +220,7 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 			return err
 		}
 
+		delay.Reset()
 		request.Offset = &api.OffsetData{
 			MessageId:   reply.Offset.MessageId,
 			SegmentId:   reply.Offset.SegmentId,
