@@ -194,6 +194,7 @@ func (this *TopicPartitionConsumer) doReading() {
 		"host":      this.host,
 		"topic":     this.topic,
 		"partition": this.partition,
+		"offset":    this.offset,
 	})
 	logger.Debug("reading started")
 
