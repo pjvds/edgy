@@ -13,6 +13,7 @@ type Offset struct {
 }
 
 var OffsetBeginning = NewOffset(0, 0, 0)
+var OffsetEndOfStream = NewOffset(^uint64(0), ^int64(0), ^uint64(0))
 
 func NewOffset(messageId uint64, position int64, segmentId uint64) Offset {
 	return Offset{
