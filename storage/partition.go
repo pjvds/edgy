@@ -360,6 +360,20 @@ type ReadResult struct {
 	Next         Offset
 }
 
+func (this *Partition) getLastOffset() Offset {
+	// TODO: make this sync/lock
+	offset := Offset{}
+
+	last := this.segments.Last()
+	if last != nil {
+		offset.SegmentId = last.ref.Segment
+		offset.Position = last.position
+		offset.MessageId = this.lastMessageId
+	}
+
+	return offset
+}
+
 func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (ReadResult, error) {
 	this.logger.Withs(tidy.Fields{
 		"offset": tidy.Stringify(offset),
@@ -369,6 +383,12 @@ func (this *Partition) ReadFrom(offset Offset, eagerFetchUntilMaxBytes int) (Rea
 		offset.MessageId = MessageId(1)
 		offset.SegmentId = SegmentId(1)
 		offset.Position = 0
+	}
+
+	if offset.IsEndOfStream() {
+		return ReadResult{
+			Next: this.getLastOffset(),
+		}, nil
 	}
 
 	if this.closed {

@@ -42,6 +42,14 @@ func (this RawMessage) Len() int {
 
 type MessageId uint64
 
+var MaxMessageId = MessageId(^uint64(0))
+
+var MaxOffset = Offset{
+	MessageId: MessageId(^uint64(0)),
+	SegmentId: SegmentId(^uint64(0)),
+	Position:  ^int64(0),
+}
+
 func NewMessage(id MessageId, content []byte) RawMessage {
 	contentLen := len(content)
 	size := HEADER_LENGTH + contentLen
@@ -92,6 +100,10 @@ func (this Offset) IsEmpty() bool {
 	return this.MessageId == MessageId(0) &&
 		this.SegmentId == SegmentId(0) &&
 		this.Position == 0
+}
+
+func (this Offset) IsEndOfStream() bool {
+	return this == MaxOffset
 }
 
 type MessageSet struct {
