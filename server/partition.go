@@ -168,7 +168,7 @@ func (this *PartitionController) appendLoop() {
 			outstandingRequests = append(outstandingRequests, request)
 		case <-syncTicker.C:
 			// TODO: re-check data on failure
-			err := this.storage.Sync()
+			_, err := this.storage.Sync()
 			for _, request := range outstandingRequests {
 				request.Result <- err
 			}

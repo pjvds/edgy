@@ -309,11 +309,18 @@ func (this *Partition) rollToNextSegment() (*Segment, error) {
 	return segment, nil
 }
 
-func (this *Partition) Sync() error {
+func (this *Partition) Sync() (Offset, error) {
 	if segment := this.segments.Last(); segment != nil {
-		return segment.Sync()
+		offset := Offset{
+			MessageId: this.lastMessageId,
+			SegmentId: segment.ref.Segment,
+			Position:  segment.position,
+		}
+
+		return offset, segment.Sync()
 	}
-	return nil
+
+	return Offset{}, errors.New("no segments")
 }
 
 // Append writes the messages in the set to the file system. The order is preserved.
