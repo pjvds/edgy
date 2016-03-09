@@ -18,8 +18,9 @@ import (
 
 type RequestContext struct {
 	Partition *PartitionController
-	Request   interface{}
-	done      chan struct {
+
+	Request interface{}
+	done    chan struct {
 		Response interface{}
 		Error    error
 	}
@@ -130,9 +131,30 @@ func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) 
 	}
 }
 
-func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServer) error {
-	delay := backoff.Exp(time.Millisecond, time.Second)
+func (this *Controller) executeRead(context context.Context, partition *PartitionController, request *api.ReadRequest, stream api.Edgy_ReadServer) (*api.OffsetData, error) {
+	requestContext := NewRequestContext(partition, request)
+	select {
+	case this.requests <- requestContext:
+	case <-context.Done():
+		err := context.Err()
+		this.logger.WithError(err).Warn("unexpected context done signal")
+		return nil, err
+	}
 
+	untypedReply, err := requestContext.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	reply := untypedReply.(*api.ReadReply)
+	if err := stream.Send(reply); err != nil {
+		return nil, err
+	}
+
+	return reply.Offset, nil
+}
+
+func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServer) error {
 	if len(request.Topic) == 0 {
 		return errors.New("missing topic")
 	}
@@ -160,77 +182,41 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 
 	this.logger.With("partition", ref).Debug("dispatching request")
 
+	if !request.Continuous {
+		_, err := this.executeRead(stream.Context(), partition, request, stream)
+		return err
+	}
+
+	receiver := partition.Notify(stream.Context())
+	errDelay := backoff.Exp(1*time.Millisecond, 5*time.Second)
+
 	for {
-		context := NewRequestContext(partition, request)
-		select {
-		case this.requests <- context:
-		case <-stream.Context().Done():
-			err := stream.Context().Err()
-			this.logger.WithError(err).Warn("unexpected context done signal")
-			return err
-		}
-
-		untypedReply, err := context.Wait()
+		offset, err := this.executeRead(stream.Context(), partition, request, stream)
 		if err != nil {
-			// TODO: when request is continuous, delay and retry.
-			if err == io.EOF {
-				this.logger.Withs(tidy.Fields{
-					"topic":     request.Topic,
-					"partition": request.Partition,
-					"offset":    tidy.Stringify(request.Offset),
-				}).WithError(err).Debug("read eof")
-			} else {
-				this.logger.Withs(tidy.Fields{
-					"topic":     request.Topic,
-					"partition": request.Partition,
-					"offset":    tidy.Stringify(request.Offset),
-				}).WithError(err).Error("read failed")
-			}
-
-			if request.Continuous {
+			if err != io.EOF {
 				select {
-				case <-delay.DelayC():
+				case <-errDelay.DelayC():
 					continue
 				case <-stream.Context().Done():
 					err := stream.Context().Err()
 					this.logger.WithError(err).Warn("unexpected context done signal")
 					return err
 				}
-			} else {
-				return err
 			}
+		} else {
+			request.Offset = offset
 		}
+		errDelay.Reset()
 
-		reply := untypedReply.(*api.ReadReply)
-
-		if len(reply.Messages) == 0 {
-			this.logger.With("partition", ref).WithError(io.EOF).Debug("read finished")
-
-			// TODO: make sure this cannot happen, the reply should error EOF on no messages
-			if request.Continuous {
-				select {
-				case <-delay.DelayC():
-					continue
-				case <-stream.Context().Done():
-					err := stream.Context().Err()
-					this.logger.WithError(err).Warn("unexpected context done signal")
-					return err
-				}
-			} else {
-				return io.EOF
+		select {
+		case signalOffset, ok := <-receiver.channel:
+			if !ok {
+				return nil
 			}
-		}
-
-		if err := stream.Send(reply); err != nil {
-			this.logger.WithError(err).Error("failed to send response to client stream")
-			return err
-		}
-
-		delay.Reset()
-		request.Offset = &api.OffsetData{
-			MessageId:   reply.Offset.MessageId,
-			SegmentId:   reply.Offset.SegmentId,
-			EndPosition: reply.Offset.EndPosition,
+			this.logger.With("offset", signalOffset)
+			continue
+		case <-stream.Context().Done():
+			return stream.Context().Err()
 		}
 	}
 }

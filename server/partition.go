@@ -18,6 +18,8 @@ type AppendRequest struct {
 }
 
 type PartitionController struct {
+	WriteNotifier
+
 	bytesInRate  metrics.Counter
 	bytesOutRate metrics.Counter
 
@@ -168,10 +170,12 @@ func (this *PartitionController) appendLoop() {
 			outstandingRequests = append(outstandingRequests, request)
 		case <-syncTicker.C:
 			// TODO: re-check data on failure
-			_, err := this.storage.Sync()
+			offset, err := this.storage.Sync()
 			for _, request := range outstandingRequests {
 				request.Result <- err
 			}
+
+			this.notifyAll(offset.MessageId)
 
 			outstandingRequests = outstandingRequests[0:0]
 		}
