@@ -2,7 +2,6 @@ package server
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"runtime"
 	"sync"
@@ -147,6 +146,12 @@ func (this *Controller) executeRead(context context.Context, partition *Partitio
 	}
 
 	reply := untypedReply.(*api.ReadReply)
+
+	if len(reply.Messages) == 0 {
+		// We are at the end of the stream
+		return nil, io.EOF
+	}
+
 	if err := stream.Send(reply); err != nil {
 		return nil, err
 	}
@@ -163,10 +168,10 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 	}
 
 	this.logger.Withs(tidy.Fields{
-		"topic":         request.Topic,
-		"partition":     request.Partition,
-		"offset":        tidy.Stringify(request.Offset),
-		"offset_string": fmt.Sprintf("%v@%v/%v", request.Offset.MessageId, request.Offset.SegmentId, request.Offset.EndPosition),
+		"topic":      request.Topic,
+		"partition":  request.Partition,
+		"offset":     tidy.Stringify(request.Offset),
+		"continuous": request.Continuous,
 	}).Debug("incoming read request")
 
 	ref := storage.PartitionRef{
@@ -210,13 +215,17 @@ func (this *Controller) Read(request *api.ReadRequest, stream api.Edgy_ReadServe
 
 		select {
 		case signalOffset, ok := <-receiver.channel:
+			this.logger.With("signal_offset", signalOffset).With("ok", ok).Debug("receiver.channel")
 			if !ok {
+				this.logger.Debug("signal channel closed")
 				return nil
 			}
 			this.logger.With("offset", signalOffset)
 			continue
 		case <-stream.Context().Done():
-			return stream.Context().Err()
+			err := stream.Context().Err()
+			this.logger.WithError(err).Debug("context done")
+			return err
 		}
 	}
 }
