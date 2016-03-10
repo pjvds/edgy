@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"log"
 	"os"
 	"path/filepath"
@@ -11,14 +10,6 @@ import (
 	"github.com/mihasya/go-metrics-librato"
 	"github.com/pjvds/edgy/server"
 	"github.com/rcrowley/go-metrics"
-)
-
-var (
-	address      = flag.String("address", ":5050", "the address to bind to")
-	datadir      = flag.String("datadir", "", "the data directory")
-	logmetrics   = flag.Bool("metrics", false, "turn metrics logging on or off")
-	libratoEmail = flag.String("libratoemail", "", "email for librato")
-	libratoToken = flag.String("libratotoken", "", "token for librato")
 )
 
 func main() {
