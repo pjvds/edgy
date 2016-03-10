@@ -156,7 +156,7 @@ func (this *PartitionController) appendLoop() {
 	this.logger.Debug("append loop started")
 
 	outstandingRequests := make([]*AppendRequest, 0)
-	syncTicker := time.NewTicker(50 * time.Millisecond)
+	var sync <-chan time.Time
 
 	for {
 		select {
@@ -168,7 +168,11 @@ func (this *PartitionController) appendLoop() {
 			request.Result <- nil
 
 			outstandingRequests = append(outstandingRequests, request)
-		case <-syncTicker.C:
+
+			if sync == nil {
+				sync = time.After(50 * time.Millisecond)
+			}
+		case <-sync:
 			// TODO: re-check data on failure
 			offset, err := this.storage.Sync()
 			for _, request := range outstandingRequests {
@@ -178,6 +182,7 @@ func (this *PartitionController) appendLoop() {
 			this.notifyAll(offset.MessageId)
 
 			outstandingRequests = outstandingRequests[0:0]
+			sync = nil
 		}
 	}
 }
