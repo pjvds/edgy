@@ -13,6 +13,7 @@ import (
 	"github.com/codegangsta/cli"
 	"github.com/pjvds/edgy/client"
 	"github.com/pjvds/edgy/storage"
+	"github.com/codahale/hdrhistogram"
 	"github.com/pjvds/randombytes"
 	"github.com/pjvds/tidy"
 )
@@ -216,6 +217,95 @@ func main() {
 				fmt.Printf("total transfered: %v\n", totalMb)
 				fmt.Printf("MB/s: %v\n", totalMb/elapsed.Seconds())
 				fmt.Printf("done!")
+			},
+		},
+
+		cli.Command{
+			Name: "latency",
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:   "hosts",
+					Value:  "localhost:5050",
+					EnvVar: "EDGY_HOSTS",
+				},
+				cli.StringFlag{
+					Name:  "topic",
+					Value: "latencybench",
+				},
+				cli.StringFlag{
+					Name:  "payload",
+					Value: "foobar",
+				},
+				cli.IntFlag{
+					Name:  "queue.size",
+					Value: 1000,
+				},
+				cli.DurationFlag{
+					Name:  "queue.time",
+					Value: 50 * time.Millisecond,
+				},
+			},
+			Action: func(ctx *cli.Context) {
+				hosts := ctx.String("hosts")
+				topic := ctx.String("topic")
+				queueSize := ctx.Int("queue.size")
+				queueTime := ctx.Duration("queue.time")
+
+				builder, err := client.NewCluster().FromHosts(hosts)
+				if err != nil {
+					fmt.Printf("cannot build cluster: %v\n", err.Error())
+					return
+				}
+
+				cluster, err := builder.Build()
+				if err != nil {
+					fmt.Printf("cannot build cluster: %v\n", err.Error())
+					return
+				}
+
+				producer, err := client.NewProducer(cluster, client.ProducerConfig{
+					QueueTime: queueTime,
+					QueueSize: queueSize,
+				})
+				if err != nil {
+					println("failed to create producer: " + err.Error())
+					return
+				}
+				consumer, err := cluster.Consume(true, topic)
+
+				go func() {
+					for {
+						payload, _ := time.Now().UTC().MarshalBinary()
+						producer.Append(topic, 0, payload)
+					}
+				}()
+
+
+				timeInMessage := new(time.Time)
+				timer := time.NewTicker(1 *time.Second)
+				histogram := hdrhistogram.New(0, time.Minute.Nanoseconds(), 5)
+
+				for {
+					select {
+					case messages := <-consumer.Messages():
+						for _, rawMessage := range messages.Messages.Messages() {
+							payload := rawMessage[storage.HEADER_LENGTH:]
+							if err := timeInMessage.UnmarshalBinary(payload); err != nil {
+								fmt.Printf("skipping message: %v\n", err.Error())
+								continue
+							}
+
+							histogram.RecordValue(time.Since(*timeInMessage).Nanoseconds() / 1e6)
+						}
+					case <-timer.C:
+						fmt.Printf("p95: %vms\n", histogram.ValueAtQuantile(0.95))
+						fmt.Printf("p50: %vms\n", histogram.ValueAtQuantile(0.50))
+						fmt.Printf("mean: %vms\n", histogram.Mean())
+						fmt.Printf("min: %vms\n", histogram.Min())
+						fmt.Printf("max: %vms\n", histogram.Max())
+						fmt.Printf("count: %v\n", histogram.TotalCount())
+					}
+				}
 			},
 		},
 
