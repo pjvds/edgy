@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync/atomic"
 
 	"github.com/OneOfOne/xxhash/native"
 	"github.com/pjvds/tidy"
@@ -264,7 +265,7 @@ func (this *Segment) Append(messages *MessageSet) error {
 		return err
 	} else {
 		// the write succeeded, advance position
-		this.position += messages.DataLen64()
+		atomic.AddInt64(&this.position, messages.DataLen64())
 
 		return nil
 	}
@@ -285,15 +286,16 @@ func (this *Segment) Finalize() error {
 }
 
 func (this *Segment) ReadAt(buffer []byte, offset int64) (int, error) {
-	// available := this.position - offset
-	//
-	// if available > int64(len(buffer)) {
-	return this.file.ReadAt(buffer, offset)
-	// }
-	//
-	// if available <= 0 {
-	// 	return 0, io.EOF
-	// }
+	position := atomic.LoadInt64(&this.position)
+	available := position - offset
 
-	//return this.file.ReadAt(buffer[0:available], offset)
+	if available <= 0 {
+		return 0, io.EOF
+	}
+
+	if available < int64(len(buffer)) {
+		return this.file.ReadAt(buffer[0:available], offset)
+	} else {
+		return this.file.ReadAt(buffer, offset)
+	}
 }
