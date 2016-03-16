@@ -114,19 +114,21 @@ func (this *Producer) senderLoop(topic string, partition int32, requests chan ap
 		callbacks = append(callbacks, request.result)
 		buffer.Write(storage.NewMessage(0, request.Message))
 
-		// receive next requests until full or timed out
-		timeout := time.After(this.config.QueueTime)
+		if this.config.QueueSize > 1 {
+			// receive next requests until full or timed out
+			timeout := time.After(this.config.QueueTime)
 
-	enqueue:
-		for index := 0; index < this.config.QueueSize; index++ {
-			select {
-			case request = <-requests:
-				callbacks = append(callbacks, request.result)
-				buffer.Write(storage.NewMessage(0, request.Message))
+		enqueue:
+			for index := 0; index < this.config.QueueSize-1; index++ {
+				select {
+				case request = <-requests:
+					callbacks = append(callbacks, request.result)
+					buffer.Write(storage.NewMessage(0, request.Message))
 
-			case <-timeout:
-				logger.With("timeout", this.config.QueueTime).Debug("queue time expired")
-				break enqueue
+				case <-timeout:
+					logger.With("timeout", this.config.QueueTime).Debug("queue time expired")
+					break enqueue
+				}
 			}
 		}
 
