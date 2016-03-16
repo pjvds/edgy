@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -10,10 +11,11 @@ import (
 	"time"
 
 	"github.com/OneOfOne/xxhash"
+	"github.com/codahale/hdrhistogram"
 	"github.com/codegangsta/cli"
+	"github.com/pborman/uuid"
 	"github.com/pjvds/edgy/client"
 	"github.com/pjvds/edgy/storage"
-	"github.com/codahale/hdrhistogram"
 	"github.com/pjvds/randombytes"
 	"github.com/pjvds/tidy"
 )
@@ -221,7 +223,100 @@ func main() {
 		},
 
 		cli.Command{
-			Name: "latency",
+			Name: "latency-single",
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:   "hosts",
+					Value:  "localhost:5050",
+					EnvVar: "EDGY_HOSTS",
+				},
+				cli.StringFlag{
+					Name:  "topic",
+					Value: "latencybench",
+				},
+				cli.StringFlag{
+					Name:  "payload",
+					Value: "foobar",
+				},
+				cli.IntFlag{
+					Name:  "queue.size",
+					Value: 1,
+				},
+				cli.DurationFlag{
+					Name:  "queue.time",
+					Value: 0,
+				},
+				cli.DurationFlag{
+					Name:  "timeout",
+					Value: 10 * time.Second,
+				},
+			},
+			Action: func(ctx *cli.Context) {
+				hosts := ctx.String("hosts")
+				topic := ctx.String("topic")
+				queueSize := ctx.Int("queue.size")
+				queueTime := ctx.Duration("queue.time")
+				timeout := ctx.Duration("timeout")
+				histogram := hdrhistogram.New(0, time.Minute.Nanoseconds(), 5)
+
+				builder, err := client.NewCluster().FromHosts(hosts)
+				if err != nil {
+					fmt.Printf("cannot build cluster: %v\n", err.Error())
+					return
+				}
+
+				cluster, err := builder.Build()
+				if err != nil {
+					fmt.Printf("cannot build cluster: %v\n", err.Error())
+					return
+				}
+
+				producer, err := client.NewProducer(cluster, client.ProducerConfig{
+					QueueTime: queueTime,
+					QueueSize: queueSize,
+				})
+				if err != nil {
+					println("failed to create producer: " + err.Error())
+					return
+				}
+				consumer, err := cluster.Consume(true, topic)
+				statsTimer := time.NewTicker(time.Second)
+
+				for {
+					timeoutChannel := time.After(timeout)
+
+					id := []byte(uuid.New())
+					appendedAt := time.Now()
+
+					producer.Append(topic, 0, id)
+
+					select {
+					case messages := <-consumer.Messages():
+						for _, rawMessage := range messages.Messages.Messages() {
+							if bytes.Equal(id, rawMessage[storage.HEADER_LENGTH:]) {
+								latency := time.Since(appendedAt)
+								println(latency.String())
+
+								histogram.RecordValue(latency.Nanoseconds() / 1e6)
+								continue
+							}
+						}
+					case <-statsTimer.C:
+						fmt.Printf("p95: %vms\n", histogram.ValueAtQuantile(95))
+						fmt.Printf("p50: %vms\n", histogram.ValueAtQuantile(50))
+						fmt.Printf("mean: %vms\n", histogram.Mean())
+						fmt.Printf("min: %vms\n", histogram.Min())
+						fmt.Printf("max: %vms\n", histogram.Max())
+						fmt.Printf("count: %v\n", histogram.TotalCount())
+					case <-timeoutChannel:
+						println("timeout")
+					}
+				}
+			},
+		},
+
+		cli.Command{
+			Name: "latency-stream",
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:   "hosts",
@@ -280,9 +375,8 @@ func main() {
 					}
 				}()
 
-
 				timeInMessage := new(time.Time)
-				timer := time.NewTicker(1 *time.Second)
+				timer := time.NewTicker(1 * time.Second)
 				histogram := hdrhistogram.New(0, time.Minute.Nanoseconds(), 5)
 
 				for {
