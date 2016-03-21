@@ -131,21 +131,10 @@ func (this *Controller) Append(ctx context.Context, request *api.AppendRequest) 
 }
 
 func (this *Controller) executeRead(context context.Context, partition *PartitionController, request *api.ReadRequest, stream api.Edgy_ReadServer) (*api.OffsetData, error) {
-	requestContext := NewRequestContext(partition, request)
-	select {
-	case this.requests <- requestContext:
-	case <-context.Done():
-		err := context.Err()
-		this.logger.WithError(err).Warn("unexpected context done signal")
-		return nil, err
-	}
-
-	untypedReply, err := requestContext.Wait()
+	reply, err := partition.HandleReadRequest(request)
 	if err != nil {
 		return nil, err
 	}
-
-	reply := untypedReply.(*api.ReadReply)
 
 	if len(reply.Messages) == 0 {
 		// We are at the end of the stream
