@@ -37,7 +37,7 @@ func NewRequestContext(partition *PartitionController, request interface{}) Requ
 		done: make(chan struct {
 			Response interface{}
 			Error    error
-		}),
+		}, 1),
 	}
 }
 
